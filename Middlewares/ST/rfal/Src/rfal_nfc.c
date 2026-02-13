@@ -2242,8 +2242,7 @@ static ReturnCode rfalNfcDeactivation( void )
     {
         gNfcDev.isOperOngoing = false;
         
-        
-        if( gNfcDev.activeDev->type == RFAL_NFC_LISTEN_TYPE_NFCA )
+        if( gNfcDev.activeDev->type == RFAL_NFC_LISTEN_TYPE_NFCA && !gNfcDev.activeDev->dev.nfca.mifare )
         {
             gNfcDev.activeDev->dev.nfca.isSleep = true;
         }

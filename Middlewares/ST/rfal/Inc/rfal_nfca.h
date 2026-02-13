@@ -149,6 +149,7 @@ typedef struct
     rfalT1TRidRes            ridRes;                              /*!< RID_RES                                                                    */
 #endif /* RFAL_FEATURE_T1T */
     bool                     isSleep;                             /*!< Device sleeping flag                                                       */
+    bool                     mifare;
 } rfalNfcaListenDevice;
 
 /*

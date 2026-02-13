@@ -195,7 +195,7 @@ bool demoIni( void )
     {
         rfalNfcDefaultDiscParams( &discParam );
 
-        discParam.devLimit      = 1U;
+        discParam.devLimit      = 4U;
 
         ST_MEMCPY( &discParam.nfcid3, NFCID3, sizeof(NFCID3) );
         ST_MEMCPY( &discParam.GB, GB, sizeof(GB) );
@@ -472,25 +472,24 @@ void demoCycle( void )
 {
     static rfalNfcDevice *nfcDevice;
 
-    rfalNfcWorker();                                    /* Run RFAL worker periodically */
+    rfalNfcWorker();
 
     switch( state )
     {
         /*******************************************************************************/
         case DEMO_ST_START_DISCOVERY:
+            platformLedOff(PLATFORM_LED_A_PORT, PLATFORM_LED_A_PIN);
+            platformLedOff(PLATFORM_LED_B_PORT, PLATFORM_LED_B_PIN);
+            platformLedOff(PLATFORM_LED_F_PORT, PLATFORM_LED_F_PIN);
+            platformLedOff(PLATFORM_LED_V_PORT, PLATFORM_LED_V_PIN);
+            platformLedOff(PLATFORM_LED_AP2P_PORT, PLATFORM_LED_AP2P_PIN);
+            platformLedOff(PLATFORM_LED_FIELD_PORT, PLATFORM_LED_FIELD_PIN);
 
-          platformLedOff(PLATFORM_LED_A_PORT, PLATFORM_LED_A_PIN);
-          platformLedOff(PLATFORM_LED_B_PORT, PLATFORM_LED_B_PIN);
-          platformLedOff(PLATFORM_LED_F_PORT, PLATFORM_LED_F_PIN);
-          platformLedOff(PLATFORM_LED_V_PORT, PLATFORM_LED_V_PIN);
-          platformLedOff(PLATFORM_LED_AP2P_PORT, PLATFORM_LED_AP2P_PIN);
-          platformLedOff(PLATFORM_LED_FIELD_PORT, PLATFORM_LED_FIELD_PIN);
+            rfalNfcDeactivate( RFAL_NFC_DEACTIVATE_IDLE );
+            rfalNfcDiscover( &discParam );
 
-          rfalNfcDeactivate( RFAL_NFC_DEACTIVATE_IDLE );
-          rfalNfcDiscover( &discParam );
-
-          multiSel = false;
-          state    = DEMO_ST_DISCOVERY;
+            multiSel = false;
+            state    = DEMO_ST_DISCOVERY;
           break;
 
         /*******************************************************************************/
@@ -566,6 +565,8 @@ void demoCycle( void )
 
                                     if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_CRC) {
                                         platformLog("Error: %d\r\n", ret);
+                                        // send HLTA
+                                        rfalNfcaPollerSleep();
                                     } else {
                                         // compute nr ar
                                         uint8_t nr_ar[8] = {0};
@@ -628,60 +629,91 @@ void demoCycle( void )
                                             uint32_t at_u32 = __builtin_bswap32(*(uint32_t *)at);
                                             platformLog("Received answer tag: %08X\r\n", at_u32);
                                             platformLog("Expected answer tag: %08X\r\n", at_expected);
-
-                                            // read block 0
-                                            uint8_t cmd_plain[4] = {0x30, 0x00, 0x00, 0x00};
-                                            uint16_t cmd_plain_crc = crc_a(cmd_plain, 2);
-                                            cmd_plain[2] = cmd_plain_crc & 0xFF;
-                                            cmd_plain[3] = (cmd_plain_crc >> 8) & 0xFF;
-
-                                            uint8_t cmd_enc[4];
-                                            uint8_t cmd_enc_parity[4];
-
-                                            for (uint16_t i = 0; i < 4; i++) {
-                                                cmd_enc[i] = crypto1_byte(&cs, 0, 0) ^ cmd_plain[i];
-                                                cmd_enc_parity[i] = (filter(cs.odd) ^ parity(cmd_plain[i])) & 1;
-                                            }
-
-                                            uint8_t resp_enc[18];
-                                            uint8_t resp_enc_parity[18];
-                                            uint16_t resp_enc_size = 0;
-
-                                            ret = send_receive_raw(cmd_enc, cmd_enc_parity, 4, resp_enc, resp_enc_parity, 32, &resp_enc_size);
-
-                                            if (ret != RFAL_ERR_NONE) {
-                                                platformLog("Cannot send read block command: %d\r\n", ret);
+                                            if (at_u32 != at_expected) {
+                                                platformLog("Unexpected answer tag\r\n");
                                             } else {
-                                                platformLog("Received response: %s\r\n", hex2Str(resp_enc, resp_enc_size));
+                                                // we are authenticated
+                                                nfcDevice->dev.nfca.mifare = true; // make sure we only send HLTA in encrypted form
+                                                platformLog("Reading sector 0\r\n");
 
-                                                uint8_t resp_plain[18];
-                                                uint8_t resp_plain_parity[18];
-                                                for (uint16_t i = 0; i < 18; i++) {
-                                                    resp_plain[i] = crypto1_byte(&cs, 0, 0) ^ resp_enc[i];
-                                                    resp_plain_parity[i] = resp_enc_parity[i] ^ filter(cs.odd);
-                                                }
+                                                for (int i = 0; i < 4; i++) {
+                                                    // read block i
+                                                    uint8_t cmd_plain[4] = {0x30, i, 0x00, 0x00};
+                                                    uint16_t cmd_plain_crc = crc_a(cmd_plain, 2);
+                                                    cmd_plain[2] = cmd_plain_crc & 0xFF;
+                                                    cmd_plain[3] = (cmd_plain_crc >> 8) & 0xFF;
 
-                                                platformLog("Decrypted response: %s\r\n", hex2Str(resp_plain, 18));
+                                                    uint8_t cmd_enc[4];
+                                                    uint8_t cmd_enc_parity[4];
 
-                                                // Check parity
-                                                bool parity_ok = true;
-                                                for (uint16_t i = 0; i < 18; i++) {
-                                                    if (parity(resp_plain[i]) != resp_plain_parity[i]) {
-                                                        parity_ok = false;
-                                                        break;
+                                                    for (uint16_t i = 0; i < 4; i++) {
+                                                        cmd_enc[i] = crypto1_byte(&cs, 0, 0) ^ cmd_plain[i];
+                                                        cmd_enc_parity[i] = (filter(cs.odd) ^ parity(cmd_plain[i])) & 1;
                                                     }
+
+                                                    uint8_t resp_enc[18];
+                                                    uint8_t resp_enc_parity[18];
+                                                    uint16_t resp_enc_size = 0;
+
+                                                    ret = send_receive_raw(cmd_enc, cmd_enc_parity, 4, resp_enc, resp_enc_parity, 32, &resp_enc_size);
+
+                                                    if (ret != RFAL_ERR_NONE) {
+                                                        platformLog("Cannot send read block command: %d\r\n", ret);
+                                                    } else {
+                                                        uint8_t resp_plain[18];
+                                                        uint8_t resp_plain_parity[18];
+                                                        for (uint16_t i = 0; i < 18; i++) {
+                                                            resp_plain[i] = crypto1_byte(&cs, 0, 0) ^ resp_enc[i];
+                                                            resp_plain_parity[i] = resp_enc_parity[i] ^ filter(cs.odd);
+                                                        }
+
+                                                        platformLog("%03d: %s", i, hex2Str(resp_plain, 16));
+
+                                                        // Check parity
+                                                        bool parity_ok = true;
+                                                        for (uint16_t i = 0; i < 18; i++) {
+                                                            if (parity(resp_plain[i]) != resp_plain_parity[i]) {
+                                                                parity_ok = false;
+                                                                break;
+                                                            }
+                                                        }
+
+                                                        if (parity_ok) {
+                                                            platformLog(" | Parity OK     ");
+                                                        } else {
+                                                            platformLog(" | Parity invalid");
+                                                        }
+
+                                                        if (crc_a(resp_plain, 18) == 0x0000) {
+                                                            platformLog(" | CRC OK\r\n");
+                                                        } else {
+                                                            platformLog(" | CRC invalid\r\n");
+                                                        }
+                                                    }
+
+                                                }
+                                                // Make tag go to sleep
+                                                uint8_t hlta_plain[4] = {0x50, 0x00, 0x00, 0x00};
+                                                uint8_t hlta_crc = crc_a(hlta_plain, 2);
+                                                hlta_plain[2] = hlta_crc & 0xFF;
+                                                hlta_plain[3] = (hlta_crc >> 8) & 0xFF;
+                                                uint8_t hlta_enc[4] = {0};
+                                                uint8_t hlta_enc_par[4] = {0};
+                                                uint8_t rx_buf[4];
+                                                uint8_t rx_par[4];
+                                                uint16_t rx_data_size = 0;
+
+                                                for (uint16_t i = 0; i < 4; i++) {
+                                                    hlta_enc[i] = crypto1_byte(&cs, 0, 0) ^ hlta_plain[i];
+                                                    hlta_enc_par[i] = filter(cs.odd) ^ parity(hlta_plain[i]);
                                                 }
 
-                                                if (parity_ok) {
-                                                    platformLog("Parity OK\r\n");
-                                                } else {
-                                                    platformLog("Parity invalid\r\n");
-                                                }
+                                                ret = send_receive_raw(hlta_enc, hlta_enc_par, 4, rx_buf, rx_par, 4, &rx_data_size);
 
-                                                if (crc_a(resp_plain, 18) == 0x0000) {
-                                                    platformLog("CRC OK\r\n");
-                                                } else {
-                                                    platformLog("CRC invalid\r\n");
+                                                if (ret != RFAL_ERR_NONE) {
+                                                    platformLog("Error sending HLTA: %d\r\n", ret);
+                                                } else if (rx_data_size != 0) {
+                                                    platformLog("Card responded to HLTA: %s(%d)", hex2Str(rx_buf, (rx_data_size+7)/8), rx_data_size % 8);
                                                 }
                                             }
                                         }
