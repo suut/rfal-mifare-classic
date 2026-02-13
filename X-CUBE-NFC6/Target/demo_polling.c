@@ -42,6 +42,7 @@
 #include "utils.h"
 #include "rfal_nfc.h"
 #include "rfal_t2t.h"
+#include "crapto1.h"
 
 #if RFAL_SUPPORT_CE && RFAL_FEATURE_LISTEN_MODE
 #include "demo_ce.h"
@@ -98,48 +99,8 @@
 static uint8_t NFCID3[] = {0x01, 0xFE, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A};
 static uint8_t GB[] = {0x46, 0x66, 0x6d, 0x01, 0x01, 0x11, 0x02, 0x02, 0x07, 0x80, 0x03, 0x02, 0x00, 0x03, 0x04, 0x01, 0x32, 0x07, 0x01, 0x03};
 
-/* APDUs communication data */
-#if RFAL_FEATURE_ISO_DEP_POLL
-static uint8_t ndefSelectApp[] = { 0x00, 0xA4, 0x04, 0x00, 0x07, 0xD2, 0x76, 0x00, 0x00, 0x85, 0x01, 0x01, 0x00 };
-static uint8_t ccSelectFile[] = { 0x00, 0xA4, 0x00, 0x0C, 0x02, 0xE1, 0x03};
-static uint8_t readBinary[] = { 0x00, 0xB0, 0x00, 0x00, 0x0F };
-
 /* For a Payment application a Select PPSE would be needed:
    ppseSelectApp[] = { 0x00, 0xA4, 0x04, 0x00, 0x0E, 0x32, 0x50, 0x41, 0x59, 0x2E, 0x53, 0x59, 0x53, 0x2E, 0x44, 0x44, 0x46, 0x30, 0x31, 0x00 } */
-#endif /* RFAL_FEATURE_ISO_DEP_POLL */
-
-#if RFAL_FEATURE_NFC_DEP
-/* P2P communication data */
-static uint8_t ndefLLCPSYMM[] = {0x00, 0x00};
-static uint8_t ndefInit[] = {0x05, 0x20, 0x06, 0x0F, 0x75, 0x72, 0x6E, 0x3A, 0x6E, 0x66, 0x63, 0x3A, 0x73, 0x6E, 0x3A, 0x73, 0x6E, 0x65, 0x70, 0x02, 0x02, 0x07, 0x80, 0x05, 0x01, 0x02};
-static uint8_t ndefUriSTcom[] = {0x13, 0x20, 0x00, 0x10, 0x02, 0x00, 0x00, 0x00, 0x23, 0xc1, 0x01,
-                                  0x00, 0x00, 0x00, 0x1c, 0x55, 0x00, 0x68, 0x74, 0x74, 0x70, 0x3a,
-                                  0x2f, 0x2f, 0x77, 0x77, 0x77, 0x2e, 0x73, 0x74, 0x2e, 0x63, 0x6f, 0x6d,
-                                  0x2f, 0x73, 0x74, 0x32, 0x35, 0x2D, 0x64, 0x65, 0x6D, 0x6F };
-#endif /* RFAL_FEATURE_NFC_DEP */
-
-#if RFAL_SUPPORT_CE && RFAL_FEATURE_LISTEN_MODE
-#if RFAL_SUPPORT_MODE_LISTEN_NFCA
-/* NFC-A CE config */
-/* 4-byte UIDs with first byte 0x08 would need random number for the subsequent 3 bytes.
- * 4-byte UIDs with first byte 0x*F are Fixed number, not unique, use for this demo
- * 7-byte UIDs need a manufacturer ID and need to assure uniqueness of the rest.*/
-static uint8_t ceNFCA_NFCID[]     = {0x5F, 'S', 'T', 'M'};    /* =_STM, 5F 53 54 4D NFCID1 / UID (4 bytes) */
-static uint8_t ceNFCA_SENS_RES[]  = {0x02, 0x00};             /* SENS_RES / ATQA for 4-byte UID            */
-static uint8_t ceNFCA_SEL_RES     = 0x20;                     /* SEL_RES / SAK                             */
-#endif /* RFAL_SUPPORT_MODE_LISTEN_NFCA */
-
-static uint8_t ceNFCF_nfcid2[]     = {0x02, 0xFE, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
-
-#if RFAL_SUPPORT_MODE_LISTEN_NFCF
-  /* NFC-F CE config */
-static uint8_t ceNFCF_SC[]         = {0x12, 0xFC};
-static uint8_t ceNFCF_SENSF_RES[]  = {0x01,                                                   /* SENSF_RES                                */
-                                  0x02, 0xFE, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,             /* NFCID2                                   */
-                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x7F, 0x7F, 0x00,             /* PAD0, PAD01, MRTIcheck, MRTIupdate, PAD2 */
-                                  0x00, 0x00 };                                               /* RD                                       */
-#endif /* RFAL_SUPPORT_MODE_LISTEN_NFCF */
-#endif /* RFAL_SUPPORT_CE && RFAL_FEATURE_LISTEN_MODE */
 
 /*
  ******************************************************************************
@@ -161,12 +122,7 @@ static bool                 multiSel;
 ******************************************************************************
 */
 
-static void demoP2P( rfalNfcDevice *nfcDev );
-static void demoAPDU( void );
-static void demoNfcv( rfalNfcvListenDevice *nfcvDev );
-static void demoNfcf( rfalNfcfListenDevice *nfcfDev );
 static void demoT2t( void );
-static void demoCE( rfalNfcDevice *nfcDev );
 static void demoNotif( rfalNfcState st );
 ReturnCode  demoTransceiveBlocking( uint8_t *txBuf, uint16_t txBufSize, uint8_t **rxBuf, uint16_t **rcvLen, uint32_t fwt );
 
@@ -248,67 +204,7 @@ bool demoIni( void )
 
         discParam.notifyCb             = demoNotif;
         discParam.totalDuration        = 1000U;
-        discParam.techs2Find           = RFAL_NFC_TECH_NONE;          /* For the demo, enable the NFC Technlogies based on RFAL Feature switches */
-
-#if RFAL_FEATURE_NFCA
         discParam.techs2Find          |= RFAL_NFC_POLL_TECH_A;
-#endif /* RFAL_FEATURE_NFCA */
-
-#if RFAL_FEATURE_NFCB
-        discParam.techs2Find          |= RFAL_NFC_POLL_TECH_B;
-#endif /* RFAL_FEATURE_NFCB */
-
-#if RFAL_FEATURE_NFCF
-        discParam.techs2Find          |= RFAL_NFC_POLL_TECH_F;
-#endif /* RFAL_FEATURE_NFCF */
-
-#if RFAL_FEATURE_NFCV
-        discParam.techs2Find          |= RFAL_NFC_POLL_TECH_V;
-#endif /* RFAL_FEATURE_NFCV */
-
-#if RFAL_FEATURE_ST25TB
-        discParam.techs2Find          |= RFAL_NFC_POLL_TECH_ST25TB;
-#endif /* RFAL_FEATURE_ST25TB */
-
-#if ST25R95
-        discParam.isoDepFS           = RFAL_ISODEP_FSXI_128;          /* ST25R95 cannot support 256 bytes of data block */
-#endif /* ST25R95 */
-
-#if RFAL_SUPPORT_MODE_POLL_ACTIVE_P2P && RFAL_FEATURE_NFC_DEP
-        discParam.techs2Find |= RFAL_NFC_POLL_TECH_AP2P;
-#endif /* RFAL_SUPPORT_MODE_POLL_ACTIVE_P2P && RFAL_FEATURE_NFC_DEP */
-
-#if RFAL_SUPPORT_MODE_LISTEN_ACTIVE_P2P && RFAL_FEATURE_NFC_DEP && RFAL_FEATURE_LISTEN_MODE
-        discParam.techs2Find |= RFAL_NFC_LISTEN_TECH_AP2P;
-#endif /* RFAL_SUPPORT_MODE_LISTEN_ACTIVE_P2P && RFAL_FEATURE_NFC_DEP && RFAL_FEATURE_LISTEN_MODE */
-
-#if DEMO_CARD_EMULATION_ONLY
-        discParam.totalDuration        = 60000U;              /* 60 seconds */
-        discParam.techs2Find           = RFAL_NFC_TECH_NONE;  /* Overwrite any previous poller modes */
-#endif /* DEMO_CARD_EMULATION_ONLY */
-
-#if RFAL_SUPPORT_CE && RFAL_FEATURE_LISTEN_MODE
-        demoCeInit( ceNFCF_nfcid2 );
-
-#if RFAL_SUPPORT_MODE_LISTEN_NFCA
-        /* Set configuration for NFC-A CE */
-        ST_MEMCPY( discParam.lmConfigPA.SENS_RES, ceNFCA_SENS_RES, RFAL_LM_SENS_RES_LEN );     /* Set SENS_RES / ATQA */
-        ST_MEMCPY( discParam.lmConfigPA.nfcid, ceNFCA_NFCID, RFAL_LM_NFCID_LEN_04 );           /* Set NFCID / UID */
-        discParam.lmConfigPA.nfcidLen = RFAL_LM_NFCID_LEN_04;                                  /* Set NFCID length to 7 bytes */
-        discParam.lmConfigPA.SEL_RES  = ceNFCA_SEL_RES;                                        /* Set SEL_RES / SAK */
-
-        discParam.techs2Find |= RFAL_NFC_LISTEN_TECH_A;
-#endif /* RFAL_SUPPORT_MODE_LISTEN_NFCA */
-
-#if RFAL_SUPPORT_MODE_LISTEN_NFCF
-        /* Set configuration for NFC-F CE */
-        ST_MEMCPY( discParam.lmConfigPF.SC, ceNFCF_SC, RFAL_LM_SENSF_SC_LEN );                 /* Set System Code */
-        ST_MEMCPY( &ceNFCF_SENSF_RES[RFAL_NFCF_CMD_LEN], ceNFCF_nfcid2, RFAL_NFCID2_LEN );     /* Load NFCID2 on SENSF_RES */
-        ST_MEMCPY( discParam.lmConfigPF.SENSF_RES, ceNFCF_SENSF_RES, RFAL_LM_SENSF_RES_LEN );  /* Set SENSF_RES / Poll Response */
-
-        discParam.techs2Find |= RFAL_NFC_LISTEN_TECH_F;
-#endif /* RFAL_SUPPORT_MODE_LISTEN_NFCF */
-#endif /* RFAL_SUPPORT_CE && RFAL_FEATURE_LISTEN_MODE */
 
         /* Check for valid configuration by calling Discover once */
         err = rfalNfcDiscover( &discParam );
@@ -326,7 +222,10 @@ bool demoIni( void )
 }
 
 static uint8_t parity(uint8_t byte) {
-    return (byte ^ (byte >> 1) ^ (byte >> 2) ^ (byte >> 3) ^ (byte >> 4) ^ (byte >> 5) ^ (byte >> 6) ^ (byte >> 7) ^ 1) & 1;
+    byte ^= (byte >> 4);
+    byte ^= (byte >> 2);
+    return (byte ^ (byte >> 1) ^ 1) & 1;
+//    return (byte ^ (byte >> 1) ^ (byte >> 2) ^ (byte >> 3) ^ (byte >> 4) ^ (byte >> 5) ^ (byte >> 6) ^ (byte >> 7) ^ 1) & 1;
 }
 
 #define SET_POS(bit_index) ({ \
@@ -351,7 +250,7 @@ static void decode_parity_st25r95(const uint8_t *buf_in, uint8_t *buf_out, uint8
     *buf_out_len = num_valid_bytes;
 }
 
-static void encode_parity_st25r95(const uint8_t *buf_in, uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
+static void encode_parity_st25r95(const uint8_t *buf_in, const uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
     for (uint32_t i = 0; i < buf_in_len; i++) {
         buf_out[2*i] = buf_in[i];
         buf_out[2*i+1] = (parity_in[i] << 7);
@@ -371,11 +270,8 @@ static void decode_parity_st25r3916(const uint8_t *buf_in, uint8_t *buf_out, uin
 
     for (uint32_t i = 0; i < num_valid_bytes; i++) {
         // set data bits
-//        platformLog("Processing byte %d\r\n", i);
         for (uint32_t j = 0; j < 8; j++) {
             SET_POS(j + 9 * i);
-//            platformLog("\tByte %d bit %d\r\n", pos_byte, pos_bit);
-//            platformLog("\tInput byte: %02X, corresponding bit %d\r\n", buf_in[pos_byte], (buf_in[pos_byte] >> pos_bit) & 1);
             buf_out[i] |= (((buf_in[pos_byte] >> pos_bit) & 1) << j);
         }
 
@@ -387,7 +283,7 @@ static void decode_parity_st25r3916(const uint8_t *buf_in, uint8_t *buf_out, uin
     *buf_out_len = num_valid_bytes;
 }
 
-static void encode_parity_st25r3916(const uint8_t *buf_in, uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
+static void encode_parity_st25r3916(const uint8_t *buf_in, const uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
     size_t num_out_bits = 9 * buf_in_len;
     size_t num_out_bytes = (num_out_bits + 7) / 8;
     memset(buf_out, 0x00, num_out_bytes);
@@ -415,12 +311,14 @@ static void encode_parity_st25r3916(const uint8_t *buf_in, uint8_t *parity_in, u
 #if defined(READER_TYPE_ST25R3916)
 # define encode_parity encode_parity_st25r3916
 # define decode_parity decode_parity_st25r3916
+# define ENCODED_BUF_SIZE(sz) ((9 * (sz) + 7) / 8)
 #elif defined(READER_TYPE_ST25R95)
 # define decode_parity encode_parity_st25r95
 # define decode_parity decode_parity_st25r95
+# define ENCODED_BUF_SIZE(sz) (2 * (sz))
 #endif
 
-uint16_t crc_a(uint8_t *data, size_t data_len) {
+uint16_t crc_a(const uint8_t *data, size_t data_len) {
     uint16_t crc = 0x6363;
     for (uint32_t i = 0; i < data_len; i++) {
         uint8_t byte = data[i];
@@ -449,6 +347,118 @@ static ReturnCode transceive_run_blocking_tx( void )
     return ret;
 }
 
+static ReturnCode transceive(const rfalTransceiveContext *ctx) {
+    ReturnCode ret = rfalStartTransceive(ctx);
+    if (ret != RFAL_ERR_NONE) platformLog("rfalStartTransceive() -> %d\r\n", ret);
+    ret = transceive_run_blocking_tx();
+    if (ret != RFAL_ERR_NONE) platformLog("rfalTransceiveRunBlockingTx() -> %d\r\n", ret);
+    ret = rfalTransceiveBlockingRx();
+    if (ret != RFAL_ERR_NONE) platformLog("rfalTransceiveBlockingRx() -> %d\r\n", ret);
+    return ret;
+}
+
+/**
+ * tx_buf: transmit buffer of size tx_data_size
+ * tx_data_size: size of the data to be transmitted, in bytes
+ * rx_buf: data to be received
+ * rx_data_size: size of the received data, in bytes
+ */
+static ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, uint16_t tx_data_size, uint8_t *rx_buf, uint8_t *rx_parity, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
+    *rx_data_size = 0;
+
+    uint32_t flags =
+            // CRC stuff
+            RFAL_TXRX_FLAGS_CRC_TX_MANUAL |
+            RFAL_TXRX_FLAGS_CRC_RX_MANUAL |
+            RFAL_TXRX_FLAGS_CRC_RX_KEEP |
+            // parity bits
+            RFAL_TXRX_FLAGS_PAR_RX_KEEP |
+            RFAL_TXRX_FLAGS_PAR_TX_NONE |
+            // analog
+            RFAL_TXRX_FLAGS_AGC_ON;
+
+    uint8_t tx_buf_encoded[ENCODED_BUF_SIZE(tx_data_size)];
+    memset(tx_buf_encoded, 0x00, ENCODED_BUF_SIZE(tx_data_size));
+    uint16_t tx_buf_encoded_size_bits = 0;
+
+    // Encode
+    encode_parity(tx_buf, tx_parity, tx_buf_encoded, tx_data_size, &tx_buf_encoded_size_bits);
+
+    uint8_t rx_buf_encoded[ENCODED_BUF_SIZE(rx_buf_max_len)];
+    memset(rx_buf_encoded, 0x00, ENCODED_BUF_SIZE(rx_buf_max_len));
+    uint16_t rx_buf_rcvd_len_bits = 0;
+
+    rfalTransceiveContext ctx = {
+            .flags = flags,
+            .fwt = rfalConvMsTo1fc(100U),
+            .rxBuf = rx_buf_encoded,
+            .rxBufLen = 8 * ENCODED_BUF_SIZE(rx_buf_max_len),
+            .rxRcvdLen = &rx_buf_rcvd_len_bits,
+            .txBuf = tx_buf_encoded,
+            .txBufLen = tx_buf_encoded_size_bits
+    };
+
+    ReturnCode ret = transceive(&ctx);
+
+    if (ret != RFAL_ERR_NONE) {
+        platformLog("Error: %d\r\n", ret);
+        return ret;
+    }
+
+//    platformLog("Received data: (%d) ", rx_buf_rcvd_len_bits);
+//    for (int i = 0; i < (rx_buf_rcvd_len_bits + 7)/8; i++) {
+//        platformLog("%02X", rx_buf_encoded[i]);
+//    }
+//    platformLog("\r\n");
+
+    // decoding parity
+    decode_parity(rx_buf_encoded, rx_buf, rx_parity, rx_buf_rcvd_len_bits, rx_data_size);
+
+    return RFAL_ERR_NONE;
+}
+
+/**
+ * send or receive with automatic parity and CRC
+ */
+static ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
+    uint8_t tx_buf_crc[tx_data_size + 2];
+    uint8_t tx_parity[tx_data_size + 2];
+    uint8_t rx_parity[rx_buf_max_len];
+
+    memcpy(tx_buf_crc, tx_buf, tx_data_size);
+    memset(tx_parity, 0x00, tx_data_size + 2);
+    memset(rx_buf, 0x00, rx_buf_max_len);
+    memset(rx_parity, 0x00, rx_buf_max_len);
+
+    // Add CRC
+    uint16_t crc = crc_a(tx_buf_crc, tx_data_size);
+    tx_buf_crc[tx_data_size] = crc & 0xFF;
+    tx_buf_crc[tx_data_size + 1] = (crc >> 8) & 0xFF;
+
+    // Add parity
+    for (uint16_t i = 0; i < tx_data_size + 2; i++) {
+        tx_parity[i] = parity(tx_buf_crc[i]);
+    }
+
+    *rx_data_size = 0;
+    ReturnCode ret = send_receive_raw(tx_buf_crc, tx_parity, tx_data_size + 2, rx_buf, rx_parity, rx_buf_max_len, rx_data_size);
+    if (ret != RFAL_ERR_NONE) {
+        return ret;
+    }
+
+    // check CRC and parity
+    for (uint16_t i = 0; i < *rx_data_size; i++) {
+        if (parity(rx_buf[i]) != rx_parity[i]) {
+            return RFAL_ERR_PAR;
+        }
+    }
+
+    if (crc_a(rx_buf, *rx_data_size) != 0x0000) {
+        return RFAL_ERR_CRC;
+    }
+
+    return RFAL_ERR_NONE;
+}
 
 /*!
  *****************************************************************************
@@ -463,20 +473,6 @@ void demoCycle( void )
     static rfalNfcDevice *nfcDevice;
 
     rfalNfcWorker();                                    /* Run RFAL worker periodically */
-
-#if defined(PLATFORM_USER_BUTTON_PORT) && defined(PLATFORM_USER_BUTTON_PIN)
-    /*******************************************************************************/
-    /* Check if USER button is pressed */
-    if( platformGpioIsLow(PLATFORM_USER_BUTTON_PORT, PLATFORM_USER_BUTTON_PIN))
-    {
-        discParam.wakeupEnabled = !discParam.wakeupEnabled;    /* enable/disable wakeup */
-        state = DEMO_ST_START_DISCOVERY;                       /* restart loop          */
-        platformLog("Toggling Wake Up mode %s\r\n", discParam.wakeupEnabled ? "ON": "OFF");
-
-        /* Debounce button */
-        while( platformGpioIsLow(PLATFORM_USER_BUTTON_PORT, PLATFORM_USER_BUTTON_PIN) );
-    }
-#endif /* PLATFORM_USER_BUTTON_PIN */
 
     switch( state )
     {
@@ -518,18 +514,14 @@ void demoCycle( void )
 
                             case RFAL_NFCA_T4T:
                                 platformLog("NFCA Passive ISO-DEP device found. UID: %s\r\n", hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
-
-                                demoAPDU();
                                 break;
 
                             case RFAL_NFCA_T4T_NFCDEP:
                             case RFAL_NFCA_NFCDEP:
                                 platformLog("NFCA Passive P2P device found. NFCID: %s\r\n", hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
-
-                                demoP2P( nfcDevice );
                                 break;
 
-                            default: // type 2 tag
+                            default: // type 2 tag/raw
                                 platformLog("ISO14443A/NFC-A card found. UID: %s\r\n", hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
 
                                 // Detect Mifare Classic
@@ -567,83 +559,137 @@ void demoCycle( void )
                                 if (model) {
                                     platformLog("Detected %s with %d bytes UID and %dK capacity\r\n", model->name, model->uid_size, model->capacity >> 10);
 
-                                    // Authenticate to sector 0
-                                    uint32_t flags =
-                                            // CRC stuff
-                                            RFAL_TXRX_FLAGS_CRC_TX_MANUAL |
-                                            RFAL_TXRX_FLAGS_CRC_RX_MANUAL |
-                                            RFAL_TXRX_FLAGS_CRC_RX_KEEP |
-                                            // parity bits
-                                            RFAL_TXRX_FLAGS_PAR_RX_KEEP |
-                                            RFAL_TXRX_FLAGS_PAR_TX_NONE |
-                                            // analog
-                                            RFAL_TXRX_FLAGS_AGC_ON;
-                                    uint8_t tx_buf[4] = {0x60, 0x00, 0x00, 0x00}; // use key A on block 0
-                                    uint8_t tx_buf_encoded[5] = {0};
-                                    uint16_t tx_buf_encoded_size_bits = 0;
-                                    uint8_t parity_in[4] = {0};
-                                    // Add CRC
-                                    uint16_t crc = crc_a(tx_buf, 2);
-                                    tx_buf[2] = crc & 0xFF;
-                                    tx_buf[3] = (crc >> 8) & 0xFF;
+                                    uint8_t tx_buf[2] = {0x60, 0x00}; // use key A on block 0
+                                    uint8_t rx_buf[4] = {0};
+                                    uint16_t rx_data_size = 0;
+                                    ReturnCode ret = send_receive(tx_buf, 2, rx_buf, 4, &rx_data_size);
 
-                                    platformLog("TX buf: ");
-                                    for (int i = 0; i < 4; i++) {
-                                        platformLog("%02X ", tx_buf[i]);
-                                    }
-                                    platformLog("\r\n");
-
-                                    // Add parity
-                                    for (int i = 0; i < 4; i++) {
-                                        parity_in[i] = parity(tx_buf[i]);
-                                    }
-                                    // Encode
-                                    encode_parity(tx_buf, parity_in, tx_buf_encoded, 4, &tx_buf_encoded_size_bits);
-
-                                    uint8_t rx_buf[32] = {0};
-                                    uint16_t rx_buf_rcvd_len_bits = 0;
-
-                                    rfalTransceiveContext ctx = {
-                                            .flags = flags,
-                                            .fwt = rfalConvMsTo1fc(100U),
-                                            .rxBuf = rx_buf,
-                                            .rxBufLen = 8 * (sizeof (rx_buf)),
-                                            .rxRcvdLen = &rx_buf_rcvd_len_bits,
-                                            .txBuf = tx_buf_encoded,
-                                            .txBufLen = tx_buf_encoded_size_bits
-                                    };
-
-                                    ReturnCode ret;
-
-                                    ret = rfalStartTransceive(&ctx);
-                                    if (ret != RFAL_ERR_NONE) platformLog("rfalStartTransceive() -> %d\r\n", ret);
-                                    ret = transceive_run_blocking_tx();
-                                    if (ret != RFAL_ERR_NONE) platformLog("rfalTransceiveRunBlockingTx() -> %d\r\n", ret);
-                                    ret = rfalTransceiveBlockingRx();
-                                    if (ret != RFAL_ERR_NONE) platformLog("rfalTransceiveBlockingRx() -> %d\r\n", ret);
-
-                                    if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_CRC && ret != RFAL_ERR_INCOMPLETE_BYTE) {
+                                    if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_CRC) {
                                         platformLog("Error: %d\r\n", ret);
                                     } else {
-                                        platformLog("Received nonce: (%d) ", rx_buf_rcvd_len_bits);
-                                        for (int i = 0; i < (rx_buf_rcvd_len_bits + 7)/8; i++) {
-                                            platformLog("%02X", rx_buf[i]);
-                                        }
-                                        platformLog("\r\n");
-                                        // decoding parity
-                                        uint8_t nonce[32];
-                                        uint8_t parity_buf[32];
-                                        uint16_t nonce_length = 0;
-                                        decode_parity(rx_buf, nonce, parity_buf, rx_buf_rcvd_len_bits, &nonce_length);
+                                        // compute nr ar
+                                        uint8_t nr_ar[8] = {0};
+                                        uint8_t nr_ar_parity[8] = {0};
 
-                                        for (int i = 0; i < nonce_length; i++) {
-                                            platformLog("%02X%s ", nonce[i], parity_buf[i] == parity(nonce[i]) ? "" : "!");
+                                        uint32_t nt = __builtin_bswap32(*(uint32_t *)rx_buf);
+                                        platformLog("Nonce tag: %08X\r\n", nt);
+
+                                        // select a very random number for nr
+                                        uint8_t nr[4] = {0x12, 0x34, 0x56, 0x78};
+
+                                        struct Crypto1State cs;
+                                        crypto1_init(&cs, 0xFFFFFFFFFFFFULL);
+
+                                        // get UID
+                                        uint32_t uid;
+                                        size_t uid_offset = 0;
+                                        switch (nfcDevice->nfcidLen) {
+                                        case 10:
+                                            uid_offset += 3;
+                                        case 7:
+                                            uid_offset += 3;
+                                        case 4:
+                                        default:
+                                            uid = __builtin_bswap32(*(uint32_t *)(nfcDevice->nfcid + uid_offset));
                                         }
-                                        platformLog("\r\n");
+
+                                        crypto1_word(&cs, nt ^ uid, 0);
+
+                                        // encrypt nr
+                                        for (uint16_t i = 0; i < 4; i++) {
+                                            nr_ar[i] = crypto1_byte(&cs, nr[i], 0) ^ nr[i];
+                                            nr_ar_parity[i] = filter(cs.odd) ^ parity(nr[i]);
+                                        }
+
+                                        // skip 32 bits in the PRNG
+                                        nt = prng_successor(nt, 32);
+
+                                        // ar
+                                        for (uint16_t i = 4; i < 8; i++) {
+                                            nt = prng_successor(nt, 8);
+                                            nr_ar[i] = crypto1_byte(&cs, 0, 0) ^ (nt & 0xFF);
+                                            nr_ar_parity[i] = filter(cs.odd) ^ parity(nt);
+                                        }
+
+                                        // expected answer
+                                        uint32_t at_expected = prng_successor(nt, 32) ^ crypto1_word(&cs, 0, 0);
+
+                                        uint8_t at[4] = {0};
+                                        uint8_t at_parity[4] = {0};
+                                        uint16_t at_size = 0;
+
+                                        ret = send_receive_raw(nr_ar, nr_ar_parity, 8, at, at_parity, 4, &at_size);
+                                        if (ret != RFAL_ERR_NONE) {
+                                            platformLog("Error when sending nr ar: %d\r\n", ret);
+                                        } else if (at_size != 4) {
+                                            platformLog("Bad at size\r\n");
+                                        } else {
+//                                            platformLog("Received at (sz=%d): %s\r\n", at_size, hex2Str(at, at_size));
+                                            uint32_t at_u32 = __builtin_bswap32(*(uint32_t *)at);
+                                            platformLog("Received answer tag: %08X\r\n", at_u32);
+                                            platformLog("Expected answer tag: %08X\r\n", at_expected);
+
+                                            // read block 0
+                                            uint8_t cmd_plain[4] = {0x30, 0x00, 0x00, 0x00};
+                                            uint16_t cmd_plain_crc = crc_a(cmd_plain, 2);
+                                            cmd_plain[2] = cmd_plain_crc & 0xFF;
+                                            cmd_plain[3] = (cmd_plain_crc >> 8) & 0xFF;
+
+                                            uint8_t cmd_enc[4];
+                                            uint8_t cmd_enc_parity[4];
+
+                                            for (uint16_t i = 0; i < 4; i++) {
+                                                cmd_enc[i] = crypto1_byte(&cs, 0, 0) ^ cmd_plain[i];
+                                                cmd_enc_parity[i] = (filter(cs.odd) ^ parity(cmd_plain[i])) & 1;
+                                            }
+
+                                            uint8_t resp_enc[18];
+                                            uint8_t resp_enc_parity[18];
+                                            uint16_t resp_enc_size = 0;
+
+                                            ret = send_receive_raw(cmd_enc, cmd_enc_parity, 4, resp_enc, resp_enc_parity, 32, &resp_enc_size);
+
+                                            if (ret != RFAL_ERR_NONE) {
+                                                platformLog("Cannot send read block command: %d\r\n", ret);
+                                            } else {
+                                                platformLog("Received response: %s\r\n", hex2Str(resp_enc, resp_enc_size));
+
+                                                uint8_t resp_plain[18];
+                                                uint8_t resp_plain_parity[18];
+                                                for (uint16_t i = 0; i < 18; i++) {
+                                                    resp_plain[i] = crypto1_byte(&cs, 0, 0) ^ resp_enc[i];
+                                                    resp_plain_parity[i] = resp_enc_parity[i] ^ filter(cs.odd);
+                                                }
+
+                                                platformLog("Decrypted response: %s\r\n", hex2Str(resp_plain, 18));
+
+                                                // Check parity
+                                                bool parity_ok = true;
+                                                for (uint16_t i = 0; i < 18; i++) {
+                                                    if (parity(resp_plain[i]) != resp_plain_parity[i]) {
+                                                        parity_ok = false;
+                                                        break;
+                                                    }
+                                                }
+
+                                                if (parity_ok) {
+                                                    platformLog("Parity OK\r\n");
+                                                } else {
+                                                    platformLog("Parity invalid\r\n");
+                                                }
+
+                                                if (crc_a(resp_plain, 18) == 0x0000) {
+                                                    platformLog("CRC OK\r\n");
+                                                } else {
+                                                    platformLog("CRC invalid\r\n");
+                                                }
+                                            }
+                                        }
                                     }
+
                                 } else if (sak & 0x40) {
                                     /* PICC compliant with ISO/IEC 14443-4 */
-                                    demoT2t();
+                                    demoT2t(); // read from NTAG21x or Mifare Ultralight etc
                                 } else {
                                     platformLog("Unknown tag\r\n");
                                 }
@@ -652,80 +698,6 @@ void demoCycle( void )
                         }
                         break;
 
-                    /*******************************************************************************/
-                    case RFAL_NFC_LISTEN_TYPE_NFCB:
-
-                        platformLog("ISO14443B/NFC-B card found. UID: %s\r\n", hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
-                        platformLedOn(PLATFORM_LED_B_PORT, PLATFORM_LED_B_PIN);
-
-                        if( rfalNfcbIsIsoDepSupported( &nfcDevice->dev.nfcb ) )
-                        {
-                            demoAPDU();
-                        }
-                        break;
-
-                    /*******************************************************************************/
-                    case RFAL_NFC_LISTEN_TYPE_NFCF:
-
-                        if( rfalNfcfIsNfcDepSupported( &nfcDevice->dev.nfcf ) )
-                        {
-                            platformLog("NFCF Passive P2P device found. NFCID: %s\r\n", hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ) );
-                            demoP2P( nfcDevice );
-                        }
-                        else
-                        {
-                            platformLog("Felica/NFC-F card found. UID: %s\r\n", hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
-
-                            demoNfcf( &nfcDevice->dev.nfcf );
-                        }
-
-                        platformLedOn(PLATFORM_LED_F_PORT, PLATFORM_LED_F_PIN);
-                        break;
-
-                    /*******************************************************************************/
-                    case RFAL_NFC_LISTEN_TYPE_NFCV:
-                        {
-                            uint8_t devUID[RFAL_NFCV_UID_LEN];
-
-                            ST_MEMCPY( devUID, nfcDevice->nfcid, nfcDevice->nfcidLen );   /* Copy the UID into local var */
-                            REVERSE_BYTES( devUID, RFAL_NFCV_UID_LEN );                 /* Reverse the UID for display purposes */
-                            platformLog("ISO15693/NFC-V card found. UID: %s\r\n", hex2Str(devUID, RFAL_NFCV_UID_LEN));
-
-                            platformLedOn(PLATFORM_LED_V_PORT, PLATFORM_LED_V_PIN);
-
-                            demoNfcv( &nfcDevice->dev.nfcv );
-                        }
-                        break;
-
-                    /*******************************************************************************/
-                    case RFAL_NFC_LISTEN_TYPE_ST25TB:
-
-                        platformLog("ST25TB card found. UID: %s\r\n", hex2Str( nfcDevice->nfcid, nfcDevice->nfcidLen ));
-                        platformLedOn(PLATFORM_LED_B_PORT, PLATFORM_LED_B_PIN);
-                        break;
-
-                    /*******************************************************************************/
-                    case RFAL_NFC_LISTEN_TYPE_AP2P:
-                    case RFAL_NFC_POLL_TYPE_AP2P:
-
-                        platformLog("NFC Active P2P device found. NFCID3: %s\r\n", hex2Str(nfcDevice->nfcid, nfcDevice->nfcidLen));
-                        platformLedOn(PLATFORM_LED_AP2P_PORT, PLATFORM_LED_AP2P_PIN);
-
-                        demoP2P( nfcDevice );
-                        break;
-
-                    /*******************************************************************************/
-                    case RFAL_NFC_POLL_TYPE_NFCA:
-                    case RFAL_NFC_POLL_TYPE_NFCF:
-
-                        platformLog("Activated in CE %s mode.\r\n", (nfcDevice->type == RFAL_NFC_POLL_TYPE_NFCA) ? "NFC-A" : "NFC-F");
-                        platformLedOn( ((nfcDevice->type == RFAL_NFC_POLL_TYPE_NFCA) ? PLATFORM_LED_A_PORT : PLATFORM_LED_F_PORT),
-                                       ((nfcDevice->type == RFAL_NFC_POLL_TYPE_NFCA) ? PLATFORM_LED_A_PIN  : PLATFORM_LED_F_PIN)  );
-
-                        demoCE( nfcDevice );
-                        break;
-
-                    /*******************************************************************************/
                     default:
                         break;
                 }
@@ -754,143 +726,6 @@ void demoCycle( void )
     }
 }
 
-static void demoCE( rfalNfcDevice *nfcDev )
-{
-#if RFAL_SUPPORT_CE && RFAL_FEATURE_LISTEN_MODE
-
-    ReturnCode err = RFAL_ERR_NONE;
-    uint8_t *rxData;
-    uint16_t *rcvLen;
-    uint8_t  txBuf[150];
-    uint16_t txLen;
-
-    do
-    {
-        rfalNfcWorker();
-
-        switch( rfalNfcGetState() )
-        {
-            case RFAL_NFC_STATE_ACTIVATED:
-                err = demoTransceiveBlocking( NULL, 0, &rxData, &rcvLen, 0);
-                break;
-
-            case RFAL_NFC_STATE_DATAEXCHANGE:
-            case RFAL_NFC_STATE_DATAEXCHANGE_DONE:
-
-                txLen = ( (nfcDev->type == RFAL_NFC_POLL_TYPE_NFCA) ? demoCeT4T( rxData, *rcvLen, txBuf, sizeof(txBuf) ) : rfalConvBytesToBits( demoCeT3T( rxData, rfalConvBitsToBytes(*rcvLen), txBuf, sizeof(txBuf) ) ) );
-                err   = demoTransceiveBlocking( txBuf, txLen, &rxData, &rcvLen, RFAL_FWT_NONE );
-                break;
-
-            case RFAL_NFC_STATE_START_DISCOVERY:
-                return;
-
-            case RFAL_NFC_STATE_LISTEN_SLEEP:
-            default:
-                break;
-        }
-    }
-    while( (err == RFAL_ERR_NONE) || (err == RFAL_ERR_SLEEP_REQ) );
-
-#else
-    NO_WARNING(nfcDev);
-#endif /* RFAL_SUPPORT_CE && RFAL_FEATURE_LISTEN_MODE */
-}
-
-/*!
- *****************************************************************************
- * \brief Demo NFC-F
- *
- * Example how to exchange read and write blocks on a NFC-F tag
- *
- *****************************************************************************
- */
-static void demoNfcf( rfalNfcfListenDevice *nfcfDev )
-{
-#if RFAL_FEATURE_NFCF
-
-    ReturnCode                 err;
-    uint8_t                    buf[ (RFAL_NFCF_NFCID2_LEN + RFAL_NFCF_CMD_LEN + (3*RFAL_NFCF_BLOCK_LEN)) ];
-    uint16_t                   rcvLen;
-    rfalNfcfServ               srv = RFAL_NFCF_SERVICECODE_RDWR;
-    rfalNfcfBlockListElem      bl[3];
-    rfalNfcfServBlockListParam servBlock;
-    //uint8_t                    wrData[] = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF };
-
-    servBlock.numServ   = 1;                            /* Only one Service to be used           */
-    servBlock.servList  = &srv;                         /* Service Code: NDEF is Read/Writeable  */
-    servBlock.numBlock  = 1;                            /* Only one block to be used             */
-    servBlock.blockList = bl;
-    bl[0].conf     = RFAL_NFCF_BLOCKLISTELEM_LEN_BIT;   /* Two-byte Block List Element           */
-    bl[0].blockNum = 0x0001;                            /* Block: NDEF Data                      */
-
-    err = rfalNfcfPollerCheck( nfcfDev->sensfRes.NFCID2, &servBlock, buf, sizeof(buf), &rcvLen);
-    platformLog(" Check Block: %s Data:  %s \r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK", (err != RFAL_ERR_NONE) ? "" : hex2Str( &buf[1], RFAL_NFCF_BLOCK_LEN) );
-
-    #if 0  /* Writing example */
-        err = rfalNfcfPollerUpdate( nfcfDev->sensfRes.NFCID2, &servBlock, buf , sizeof(buf), wrData, buf, sizeof(buf) );
-        platformLog(" Update Block: %s Data: %s \r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK", (err != RFAL_ERR_NONE) ? "" : hex2Str( wrData, RFAL_NFCF_BLOCK_LEN) );
-        err = rfalNfcfPollerCheck( nfcfDev->sensfRes.NFCID2, &servBlock, buf, sizeof(buf), &rcvLen);
-        platformLog(" Check Block:  %s Data: %s \r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK", (err != RFAL_ERR_NONE) ? "" : hex2Str( &buf[1], RFAL_NFCF_BLOCK_LEN) );
-    #endif
-
-#endif /* RFAL_FEATURE_NFCF */
-}
-
-/*!
- *****************************************************************************
- * \brief Demo NFC-V Exchange
- *
- * Example how to exchange read and write blocks on a NFC-V tag
- *
- *****************************************************************************
- */
-static void demoNfcv( rfalNfcvListenDevice *nfcvDev )
-{
-#if RFAL_FEATURE_NFCV
-
-    ReturnCode            err;
-    uint16_t              rcvLen;
-    uint8_t               blockNum = 1;
-    uint8_t               rxBuf[ 1 + DEMO_NFCV_BLOCK_LEN + RFAL_CRC_LEN ];                        /* Flags + Block Data + CRC */
-    uint8_t               *uid;
-    uint8_t               reqFlag;
-#if DEMO_NFCV_WRITE_TAG
-    uint8_t               wrData[DEMO_NFCV_BLOCK_LEN] = { 0x11, 0x22, 0x33, 0x99 };             /* Write block example */
-#endif /* DEMO_NFCV_WRITE_TAG */
-
-    uid     = nfcvDev->InvRes.UID;
-    reqFlag = RFAL_NFCV_REQ_FLAG_DEFAULT;
-
-    #if DEMO_NFCV_USE_SELECT_MODE
-        /*
-        * Activate selected state
-        */
-        err = rfalNfcvPollerSelect( reqFlag, nfcvDev->InvRes.UID );
-        platformLog(" Select %s \r\n", (err != RFAL_ERR_NONE) ? "FAIL (revert to addressed mode)": "OK" );
-        if( err == RFAL_ERR_NONE )
-        {
-            reqFlag = (RFAL_NFCV_REQ_FLAG_DEFAULT | RFAL_NFCV_REQ_FLAG_SELECT);
-            uid     = NULL;
-        }
-    #endif /* DEMO_NFCV_USE_SELECT_MODE */
-
-    /*
-    * Read block using Read Single Block command
-    * with addressed mode (uid != NULL) or selected mode (uid == NULL)
-    */
-    err = rfalNfcvPollerReadSingleBlock(reqFlag, uid, blockNum, rxBuf, sizeof(rxBuf), &rcvLen);
-    platformLog(" Read Block: %s %s\r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK Data:", (err != RFAL_ERR_NONE) ? "" : hex2Str( &rxBuf[1], DEMO_NFCV_BLOCK_LEN));
-
-    #if DEMO_NFCV_WRITE_TAG /* Writing example */
-        err = rfalNfcvPollerWriteSingleBlock(reqFlag, uid, blockNum, wrData, sizeof(wrData));
-        platformLog(" Write Block: %s Data: %s\r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK", hex2Str( wrData, DEMO_NFCV_BLOCK_LEN) );
-        err = rfalNfcvPollerReadSingleBlock(reqFlag, uid, blockNum, rxBuf, sizeof(rxBuf), &rcvLen);
-        platformLog(" Read Block: %s %s\r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK Data:", (err != RFAL_ERR_NONE) ? "" : hex2Str( &rxBuf[1], DEMO_NFCV_BLOCK_LEN));
-    #endif /* DEMO_NFCV_WRITE_TAG */
-
-#endif /* RFAL_FEATURE_NFCV */
-}
-
 /*!
  *****************************************************************************
  * \brief Demo T2T Exchange
@@ -911,142 +746,6 @@ static void demoT2t( void )
     platformLog(" Read Block: %s %s\r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK Data:", (err != RFAL_ERR_NONE) ? "" : hex2Str( rxBuf, RFAL_T2T_READ_DATA_LEN));
 
 #endif
-}
-
-/*!
- *****************************************************************************
- * \brief Demo P2P Exchange
- *
- * Sends a NDEF URI record 'http://www.ST.com' via NFC-DEP (P2P) protocol.
- *
- * This method sends a set of static predefined frames which tries to establish
- * a LLCP connection, followed by the NDEF record, and then keeps sending
- * LLCP SYMM packets to maintain the connection.
- *
- *
- *****************************************************************************
- */
-void demoP2P( rfalNfcDevice *nfcDev )
-{
-#if RFAL_FEATURE_NFC_DEP
-
-    uint16_t   *rxLen;
-    uint8_t    *rxData;
-    ReturnCode err;
-
-    /* In Listen mode retrieve the first request from Initiator */
-    if( nfcDev->type == RFAL_NFC_POLL_TYPE_AP2P )
-    {
-        demoTransceiveBlocking( NULL, 0, &rxData, &rxLen, 0);
-
-        /* Initiator request is being ignored/discarded  */
-    }
-
-    platformLog(" Initialize device .. ");
-    err = demoTransceiveBlocking( ndefInit, sizeof(ndefInit), &rxData, &rxLen, RFAL_FWT_NONE);
-    if( err != RFAL_ERR_NONE )
-    {
-        platformLog("failed.\r\n");
-        return;
-    }
-    platformLog("succeeded.\r\n");
-
-    platformLog(" Push NDEF Uri: www.st.com/st25-demo ... ");
-    err = demoTransceiveBlocking( ndefUriSTcom, sizeof(ndefUriSTcom), &rxData, &rxLen, RFAL_FWT_NONE);
-    if( err != RFAL_ERR_NONE )
-    {
-        platformLog("failed.\r\n");
-        return;
-    }
-    platformLog("succeeded.\r\n");
-
-    platformLog(" Device present, maintaining connection ");
-    while(err == RFAL_ERR_NONE)
-    {
-        err = demoTransceiveBlocking( ndefLLCPSYMM, sizeof(ndefLLCPSYMM), &rxData, &rxLen, RFAL_FWT_NONE);
-        platformLog(".");
-        platformDelay(50);
-    }
-    platformLog("\r\n Device removed.\r\n");
-
-#endif /* RFAL_FEATURE_NFC_DEP */
-}
-
-/*!
- *****************************************************************************
- * \brief Demo APDUs Exchange
- *
- * Example how to exchange a set of predefined APDUs with PICC. The NDEF
- * application will be selected and then CC will be selected and read.
- *
- *****************************************************************************
- */
-void demoAPDU( void )
-{
-#if RFAL_FEATURE_ISO_DEP_POLL
-    ReturnCode err;
-    uint16_t   *rxLen;
-    uint8_t    *rxData;
-
-    /* Exchange APDU: NDEF Tag Application Select command */
-    err = demoTransceiveBlocking( ndefSelectApp, sizeof(ndefSelectApp), &rxData, &rxLen, RFAL_FWT_NONE );
-    platformLog(" Select NDEF Application: %s Data: %s\r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK", (err != RFAL_ERR_NONE) ? "" : hex2Str( rxData, *rxLen) );
-
-    if( (err == RFAL_ERR_NONE) && rxData[0] == 0x90 && rxData[1] == 0x00)
-    {
-        /* Exchange APDU: Select Capability Container File */
-        err = demoTransceiveBlocking( ccSelectFile, sizeof(ccSelectFile), &rxData, &rxLen, RFAL_FWT_NONE );
-        platformLog(" Select CC: %s Data: %s\r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK", (err != RFAL_ERR_NONE) ? "" : hex2Str( rxData, *rxLen) );
-
-        /* Exchange APDU: Read Capability Container File  */
-        err = demoTransceiveBlocking( readBinary, sizeof(readBinary), &rxData, &rxLen, RFAL_FWT_NONE );
-        platformLog(" Read CC: %s Data: %s\r\n", (err != RFAL_ERR_NONE) ? "FAIL": "OK", (err != RFAL_ERR_NONE) ? "" : hex2Str( rxData, *rxLen) );
-    }
-#endif /* RFAL_FEATURE_ISO_DEP_POLL */
-}
-
-/*!
- *****************************************************************************
- * \brief Demo Blocking Transceive
- *
- * Helper function to send data in a blocking manner via the rfalNfc module
- *
- * \warning A protocol transceive handles long timeouts (several seconds),
- * transmission errors and retransmissions which may lead to a long period of
- * time where the MCU/CPU is blocked in this method.
- * This is a demo implementation, for a non-blocking usage example please
- * refer to the Examples available with RFAL
- *
- * \param[in]  txBuf      : data to be transmitted
- * \param[in]  txBufSize  : size of the data to be transmited
- * \param[out] rxData     : location where the received data has been placed
- * \param[out] rcvLen     : number of data bytes received
- * \param[in]  fwt        : FWT to be used (only for RF frame interface,
- *                                          otherwise use RFAL_FWT_NONE)
- *
- *
- *  \return ERR_PARAM     : Invalid parameters
- *  \return ERR_TIMEOUT   : Timeout error
- *  \return ERR_FRAMING   : Framing error detected
- *  \return ERR_PROTO     : Protocol error detected
- *  \return RFAL_ERR_NONE      : No error, activation successful
- *
- *****************************************************************************
- */
-ReturnCode demoTransceiveBlocking( uint8_t *txBuf, uint16_t txBufSize, uint8_t **rxData, uint16_t **rcvLen, uint32_t fwt )
-{
-    ReturnCode err;
-
-    err = rfalNfcDataExchangeStart( txBuf, txBufSize, rxData, rcvLen, fwt );
-    if( err == RFAL_ERR_NONE )
-    {
-        do{
-            rfalNfcWorker();
-            err = rfalNfcDataExchangeGetStatus();
-        }
-        while( err == RFAL_ERR_BUSY );
-    }
-    return err;
 }
 
 /**
