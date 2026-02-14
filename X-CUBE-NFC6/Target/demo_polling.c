@@ -308,7 +308,9 @@ void demoCycle( void )
                                         uint8_t nr_ar_parity[8] = {0};
 
                                         uint32_t nt = __builtin_bswap32(*(uint32_t *)rx_buf);
-                                        platformLog("Nonce tag: %08X\r\n", nt);
+#ifdef EXTRA_DEBUG
+                                        platformLog("nt: %08X\r\n", nt);
+#endif
 
                                         // select a very random number for nr
                                         uint8_t nr[4] = {0x12, 0x34, 0x56, 0x78};
@@ -347,6 +349,11 @@ void demoCycle( void )
                                             nr_ar_parity[i] = filter(cs.odd) ^ oddparity8(nt);
                                         }
 
+#ifdef EXTRA_DEBUG
+                                        platformLog("nr: %s\r\n", hex2Str(nr_ar, 4));
+                                        platformLog("ar: %s\r\n", hex2Str(nr_ar + 4, 4));
+#endif
+
                                         // expected answer
                                         uint32_t at_expected = prng_successor(nt, 32) ^ crypto1_word(&cs, 0, 0);
 
@@ -363,67 +370,26 @@ void demoCycle( void )
                                             platformLog("Bad at size\r\n");
                                         } else {
                                             uint32_t at_u32 = __builtin_bswap32(*(uint32_t *)at);
-                                            platformLog("Received answer tag: %08X\r\n", at_u32);
-                                            platformLog("Expected answer tag: %08X\r\n", at_expected);
+#ifdef EXTRA_DEBUG
+                                            platformLog("at: %08X\r\n", at_u32);
+#endif
                                             if (at_u32 != at_expected) {
-                                                platformLog("Unexpected answer tag\r\n");
+                                                platformLog("Wrong answer tag\r\n");
                                             } else {
                                                 // we are authenticated
                                                 platformLog("Reading sector 0\r\n");
 
                                                 for (int i = 0; i < 4; i++) {
                                                     // read block i
-                                                    uint8_t cmd_plain[4] = {0x30, i, 0x00, 0x00};
-                                                    uint16_t cmd_plain_crc = crc_a(cmd_plain, 2);
-                                                    cmd_plain[2] = cmd_plain_crc & 0xFF;
-                                                    cmd_plain[3] = (cmd_plain_crc >> 8) & 0xFF;
-
-                                                    uint8_t cmd_enc[4];
-                                                    uint8_t cmd_enc_parity[4];
-
-                                                    for (uint16_t i = 0; i < 4; i++) {
-                                                        cmd_enc[i] = crypto1_byte(&cs, 0, 0) ^ cmd_plain[i];
-                                                        cmd_enc_parity[i] = (filter(cs.odd) ^ oddparity8(cmd_plain[i])) & 1;
-                                                    }
-
-                                                    uint8_t resp_enc[18];
-                                                    uint8_t resp_enc_parity[18];
-                                                    uint16_t resp_enc_size = 0;
-
-                                                    ret = send_receive_raw(cmd_enc, cmd_enc_parity, 4, resp_enc, resp_enc_parity, 32, &resp_enc_size);
+                                                    uint8_t cmd[4] = {0x30, i, 0x00, 0x00};
+                                                    uint8_t resp[18] = {0};
+                                                    uint16_t resp_size = 0;
+                                                    ret = send_receive_encrypted(&cs, cmd, 2, resp, 18, &resp_size);
 
                                                     if (ret != RFAL_ERR_NONE) {
                                                         platformLog("Cannot send read block command: %d\r\n", ret);
                                                     } else {
-                                                        uint8_t resp_plain[18];
-                                                        uint8_t resp_plain_parity[18];
-                                                        for (uint16_t i = 0; i < 18; i++) {
-                                                            resp_plain[i] = crypto1_byte(&cs, 0, 0) ^ resp_enc[i];
-                                                            resp_plain_parity[i] = resp_enc_parity[i] ^ filter(cs.odd);
-                                                        }
-
-                                                        platformLog("%03d: %s", i, hex2Str(resp_plain, 16));
-
-                                                        // Check parity
-                                                        bool parity_ok = true;
-                                                        for (uint16_t i = 0; i < 18; i++) {
-                                                            if (oddparity8(resp_plain[i]) != resp_plain_parity[i]) {
-                                                                parity_ok = false;
-                                                                break;
-                                                            }
-                                                        }
-
-                                                        if (parity_ok) {
-                                                            platformLog(" | Parity OK     ");
-                                                        } else {
-                                                            platformLog(" | Parity invalid");
-                                                        }
-
-                                                        if (crc_a(resp_plain, 18) == 0x0000) {
-                                                            platformLog(" | CRC OK\r\n");
-                                                        } else {
-                                                            platformLog(" | CRC invalid\r\n");
-                                                        }
+                                                        platformLog("%03d: %s\r\n", i, hex2Str(resp, 16));
                                                     }
 
                                                 }
