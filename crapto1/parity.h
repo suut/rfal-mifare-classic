@@ -18,10 +18,7 @@
 
 // all functions defined in header file by purpose. Allows compiler optimizations.
 
-#ifndef __PARITY_H
-#define __PARITY_H
-
-#include "common.h"
+#pragma once
 
 static const uint8_t g_odd_byte_parity[256] = {
     1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1,
@@ -90,5 +87,3 @@ static inline uint8_t oddparity32(uint32_t x) {
     return !__builtin_parity(x);
 #endif
 }
-
-#endif /* __PARITY_H */

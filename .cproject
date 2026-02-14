@@ -55,6 +55,7 @@
 									<listOptionValue builtIn="false" value="../Drivers/BSP/NFC06A1"/>
 									<listOptionValue builtIn="false" value="../Middlewares/ST/rfal/Src"/>
 									<listOptionValue builtIn="false" value="../crapto1/"/>
+									<listOptionValue builtIn="false" value="../mf1/"/>
 								</option>
 								<inputType id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.input.c.975001906" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.input.c"/>
 							</tool>
@@ -86,6 +87,7 @@
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Middlewares"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="X-CUBE-NFC6"/>
 						<entry flags="VALUE_WORKSPACE_PATH" kind="sourcePath" name="crapto1"/>
+						<entry flags="VALUE_WORKSPACE_PATH" kind="sourcePath" name="mf1"/>
 					</sourceEntries>
 				</configuration>
 			</storageModule>
