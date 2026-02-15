@@ -43,7 +43,7 @@ mf1_model_t mifare_models[MF1_NUM_MODELS] = {
         {.name = "Mifare Classic 4K", .short_name = "MF1S703", .sak = 0x18, .atqa = 0x0042, .uid_size = 7, .capacity = 4096},
 };
 
-const mf1_model_t *identify_mf1_model(uint8_t sak, uint16_t atqa) {
+const mf1_model_t *mf1_identify_model(uint8_t sak, uint16_t atqa) {
     for (int i = 0; i < MF1_NUM_MODELS; i++) {
         if ((sak | (atqa << 8)) == (mifare_models[i].id & 0x00FFFFFF)) {
             return &mifare_models[i];
@@ -52,10 +52,9 @@ const mf1_model_t *identify_mf1_model(uint8_t sak, uint16_t atqa) {
     return NULL;
 }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
+#if defined(MF1_READER_TYPE_ST25R95)
 
-void decode_parity_st25r95(const uint8_t *buf_in, uint8_t *buf_out, uint8_t *parity_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
+void mf1_decode_parity_st25r95(const uint8_t *buf_in, uint8_t *buf_out, uint8_t *parity_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
     const size_t num_valid_bytes = buf_in_len / 2;
 
     for (uint32_t i = 0; i < num_valid_bytes; i++) {
@@ -66,7 +65,7 @@ void decode_parity_st25r95(const uint8_t *buf_in, uint8_t *buf_out, uint8_t *par
     *buf_out_len = num_valid_bytes;
 }
 
-void encode_parity_st25r95(const uint8_t *buf_in, const uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
+void mf1_encode_parity_st25r95(const uint8_t *buf_in, const uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
     for (uint32_t i = 0; i < buf_in_len; i++) {
         buf_out[2*i] = buf_in[i];
         buf_out[2*i+1] = (parity_in[i] << 7);
@@ -75,7 +74,9 @@ void encode_parity_st25r95(const uint8_t *buf_in, const uint8_t *parity_in, uint
     *buf_out_len = 2 * buf_in_len;
 }
 
-void decode_parity_st25r3916(const uint8_t *buf_in, uint8_t *buf_out, uint8_t *parity_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
+#elif defined(MF1_READER_TYPE_ST25R3916)
+
+void mf1_decode_parity_st25r3916(const uint8_t *buf_in, uint8_t *buf_out, uint8_t *parity_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
     const size_t num_valid_bytes = buf_in_len / 9;
 
     memset(buf_out, 0x00, num_valid_bytes);
@@ -99,7 +100,7 @@ void decode_parity_st25r3916(const uint8_t *buf_in, uint8_t *buf_out, uint8_t *p
     *buf_out_len = num_valid_bytes;
 }
 
-void encode_parity_st25r3916(const uint8_t *buf_in, const uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
+void mf1_encode_parity_st25r3916(const uint8_t *buf_in, const uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
     size_t num_out_bits = 9 * buf_in_len;
     size_t num_out_bytes = (num_out_bits + 7) / 8;
     memset(buf_out, 0x00, num_out_bytes);
@@ -122,7 +123,13 @@ void encode_parity_st25r3916(const uint8_t *buf_in, const uint8_t *parity_in, ui
     *buf_out_len = num_out_bits;
 }
 
-#pragma GCC diagnostic pop
+#else
+
+# error At least one reader type must be defined
+
+#endif
+
+//#pragma GCC diagnostic pop
 
 static MF1ReturnCode transceive_run_blocking_tx(void)
 {
@@ -144,15 +151,15 @@ static MF1ReturnCode transceive_run_blocking_tx(void)
 
 static MF1ReturnCode transceive(const rfalTransceiveContext *ctx) {
     MF1ReturnCode ret = rfalStartTransceive(ctx);
-#ifdef EXTRA_DEBUG
+#ifdef MF1_EXTRA_DEBUG
     if (ret != MF1_ERR(NONE)) mf1_printf("rfalStartTransceive() -> %d\r\n", ret);
 #endif
     ret = transceive_run_blocking_tx();
-#ifdef EXTRA_DEBUG
+#ifdef MF1_EXTRA_DEBUG
     if (ret != MF1_ERR(NONE)) mf1_printf("rfalTransceiveRunBlockingTx() -> %d\r\n", ret);
 #endif
     ret = rfalTransceiveBlockingRx();
-#ifdef EXTRA_DEBUG
+#ifdef MF1_EXTRA_DEBUG
     if (ret != MF1_ERR(NONE)) mf1_printf("rfalTransceiveBlockingRx() -> %d\r\n", ret);
 #endif
     return ret;
@@ -164,27 +171,27 @@ static MF1ReturnCode transceive(const rfalTransceiveContext *ctx) {
  * rx_buf: data to be received
  * rx_data_size: size of the received data, in bytes
  */
-MF1ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, uint16_t tx_data_size, uint8_t *rx_buf, uint8_t *rx_parity, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
+MF1ReturnCode mf1_send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, uint16_t tx_data_size, uint8_t *rx_buf, uint8_t *rx_parity, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
     *rx_data_size = 0;
 
     uint32_t flags = MF1_TXRX_FLAGS;
 
-    uint8_t tx_buf_encoded[ENCODED_BUF_SIZE(tx_data_size)];
-    memset(tx_buf_encoded, 0x00, ENCODED_BUF_SIZE(tx_data_size));
+    uint8_t tx_buf_encoded[MF1_ENCODED_BUF_SIZE(tx_data_size)];
+    memset(tx_buf_encoded, 0x00, MF1_ENCODED_BUF_SIZE(tx_data_size));
     uint16_t tx_buf_encoded_size_bits = 0;
 
     // Encode
-    encode_parity(tx_buf, tx_parity, tx_buf_encoded, tx_data_size, &tx_buf_encoded_size_bits);
+    mf1_encode_parity(tx_buf, tx_parity, tx_buf_encoded, tx_data_size, &tx_buf_encoded_size_bits);
 
-    uint8_t rx_buf_encoded[ENCODED_BUF_SIZE(rx_buf_max_len)];
-    memset(rx_buf_encoded, 0x00, ENCODED_BUF_SIZE(rx_buf_max_len));
+    uint8_t rx_buf_encoded[MF1_ENCODED_BUF_SIZE(rx_buf_max_len)];
+    memset(rx_buf_encoded, 0x00, MF1_ENCODED_BUF_SIZE(rx_buf_max_len));
     uint16_t rx_buf_rcvd_len_bits = 0;
 
     rfalTransceiveContext ctx = {
             .flags = flags,
             .fwt = rfalConvMsTo1fc(1U),
             .rxBuf = rx_buf_encoded,
-            .rxBufLen = 8 * ENCODED_BUF_SIZE(rx_buf_max_len),
+            .rxBufLen = 8 * MF1_ENCODED_BUF_SIZE(rx_buf_max_len),
             .rxRcvdLen = &rx_buf_rcvd_len_bits,
             .txBuf = tx_buf_encoded,
             .txBufLen = tx_buf_encoded_size_bits
@@ -192,7 +199,7 @@ MF1ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, 
 
     MF1ReturnCode ret = transceive(&ctx);
 
-#ifdef EXTRA_DEBUG
+#ifdef MF1_EXTRA_DEBUG
     mf1_printf("Received data: (%db) ", rx_buf_rcvd_len_bits);
     for (int i = 0; i < (rx_buf_rcvd_len_bits + 7)/8; i++) {
         mf1_printf("%02X ", rx_buf_encoded[i]);
@@ -201,14 +208,14 @@ MF1ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, 
 #endif
 
     if (ret != MF1_ERR(NONE)) {
-#ifdef EXTRA_DEBUG
+#ifdef MF1_EXTRA_DEBUG
         mf1_printf("Error: %d\r\n", ret);
 #endif
         return ret;
     }
 
     // decoding parity
-    decode_parity(rx_buf_encoded, rx_buf, rx_parity, rx_buf_rcvd_len_bits, rx_data_size);
+    mf1_decode_parity(rx_buf_encoded, rx_buf, rx_parity, rx_buf_rcvd_len_bits, rx_data_size);
 
     return MF1_ERR(NONE);
 }
@@ -216,7 +223,7 @@ MF1ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, 
 /**
  * send or receive with automatic parity and CRC
  */
-MF1ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
+MF1ReturnCode mf1_send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
     uint8_t tx_buf_crc[tx_data_size + 2];
     uint8_t tx_parity[tx_data_size + 2];
     uint8_t rx_parity[rx_buf_max_len];
@@ -227,7 +234,7 @@ MF1ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t
     memset(rx_parity, 0x00, rx_buf_max_len);
 
     // Add CRC
-    uint16_t crc = crc_a(tx_buf_crc, tx_data_size);
+    uint16_t crc = mf1_crc_a(tx_buf_crc, tx_data_size);
     tx_buf_crc[tx_data_size] = crc & 0xFF;
     tx_buf_crc[tx_data_size + 1] = (crc >> 8) & 0xFF;
 
@@ -237,7 +244,7 @@ MF1ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t
     }
 
     *rx_data_size = 0;
-    MF1ReturnCode ret = send_receive_raw(tx_buf_crc, tx_parity, tx_data_size + 2, rx_buf, rx_parity, rx_buf_max_len, rx_data_size);
+    MF1ReturnCode ret = mf1_send_receive_raw(tx_buf_crc, tx_parity, tx_data_size + 2, rx_buf, rx_parity, rx_buf_max_len, rx_data_size);
     if (ret != MF1_ERR(NONE)) {
         return ret;
     }
@@ -249,7 +256,7 @@ MF1ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t
         }
     }
 
-    if (crc_a(rx_buf, *rx_data_size) != 0x0000) {
+    if (mf1_crc_a(rx_buf, *rx_data_size) != 0x0000) {
         return MF1_ERR(CRC);
     }
 
@@ -259,16 +266,16 @@ MF1ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t
 /**
  * send or receive encrypted message with automatic parity and CRC
  */
-MF1ReturnCode send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
+MF1ReturnCode mf1_send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
         uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
-    return send_receive_encrypted_ex(cs, tx_buf, tx_data_size, rx_buf, rx_buf_max_len, rx_data_size, true);
+    return mf1_send_receive_encrypted_ex(cs, tx_buf, tx_data_size, rx_buf, rx_buf_max_len, rx_data_size, true);
 }
 
 /**
  * send or receive encrypted message with automatic parity and CRC,
  * optionally do not decrypt the message or check parity or CRC
  */
-MF1ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
+MF1ReturnCode mf1_send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
         uint16_t rx_buf_max_len, uint16_t *rx_data_size, bool decrypt) {
     uint8_t tx_buf_crc[tx_data_size + 2];
     uint8_t tx_enc[tx_data_size + 2];
@@ -286,7 +293,7 @@ MF1ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *
     memset(rx_parity, 0x00, rx_buf_max_len);
 
     // Add CRC
-    uint16_t crc = crc_a(tx_buf_crc, tx_data_size);
+    uint16_t crc = mf1_crc_a(tx_buf_crc, tx_data_size);
     tx_buf_crc[tx_data_size] = crc & 0xFF;
     tx_buf_crc[tx_data_size + 1] = (crc >> 8) & 0xFF;
 
@@ -297,7 +304,7 @@ MF1ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *
     }
 
     *rx_data_size = 0;
-    MF1ReturnCode ret = send_receive_raw(tx_enc, tx_enc_parity, tx_data_size + 2, rx_enc, rx_enc_parity, rx_buf_max_len, rx_data_size);
+    MF1ReturnCode ret = mf1_send_receive_raw(tx_enc, tx_enc_parity, tx_data_size + 2, rx_enc, rx_enc_parity, rx_buf_max_len, rx_data_size);
     if (ret != MF1_ERR(NONE)) {
         return ret;
     }
@@ -316,7 +323,7 @@ MF1ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *
             }
         }
 
-        if (crc_a(rx_buf, *rx_data_size) != 0x0000) {
+        if (mf1_crc_a(rx_buf, *rx_data_size) != 0x0000) {
             return MF1_ERR(CRC);
         }
     } else {
@@ -327,7 +334,7 @@ MF1ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *
     return MF1_ERR(NONE);
 }
 
-MF1ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key_type_t key_type, uint64_t key, const uint8_t *uid, uint8_t uid_len) {
+MF1ReturnCode mf1_authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key_type_t key_type, uint64_t key, const uint8_t *uid, uint8_t uid_len) {
     uint8_t tx_buf[2] = {0x60 | key_type, block};
     uint8_t rx_buf[4] = {0};
     uint16_t rx_data_size = 0;
@@ -336,10 +343,10 @@ MF1ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, 
 
     if (nested) {
         // send command encrypted
-        ret = send_receive_encrypted_ex(cs, tx_buf, 2, rx_buf, 4, &rx_data_size, false);
+        ret = mf1_send_receive_encrypted_ex(cs, tx_buf, 2, rx_buf, 4, &rx_data_size, false);
     } else {
         // send command in plain text
-        ret = send_receive(tx_buf, 2, rx_buf, 4, &rx_data_size);
+        ret = mf1_send_receive(tx_buf, 2, rx_buf, 4, &rx_data_size);
     }
 
     if (ret != MF1_ERR(NONE) && ret != MF1_ERR(CRC)) {
@@ -355,7 +362,7 @@ MF1ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, 
     uint8_t nr_ar_parity[8] = {0};
 
     uint32_t nt = __builtin_bswap32(*(uint32_t *)rx_buf);
-#ifdef EXTRA_DEBUG
+#ifdef MF1_EXTRA_DEBUG
     mf1_printf("nt: %08X\r\n", nt);
 #endif
 
@@ -405,9 +412,9 @@ MF1ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, 
         nr_ar_parity[i] = filter(cs->odd) ^ oddparity8(nt);
     }
 
-#ifdef EXTRA_DEBUG
-    mf1_printf("nr: %s\r\n", hex2Str(nr_ar, 4));
-    mf1_printf("ar: %s\r\n", hex2Str(nr_ar + 4, 4));
+#ifdef MF1_EXTRA_DEBUG
+    mf1_printf("nr: %s\r\n", mf1_hex(nr_ar, 4));
+    mf1_printf("ar: %s\r\n", mf1_hex(nr_ar + 4, 4));
 #endif
 
     // expected answer
@@ -417,7 +424,7 @@ MF1ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, 
     uint8_t at_parity[4] = {0};
     uint16_t at_size = 0;
 
-    ret = send_receive_raw(nr_ar, nr_ar_parity, 8, at, at_parity, 4, &at_size);
+    ret = mf1_send_receive_raw(nr_ar, nr_ar_parity, 8, at, at_parity, 4, &at_size);
     if (ret == MF1_ERR(TIMEOUT)) {
         mf1_printf("Invalid key A for sector 0\r\n");
         return MF1_ERR(SEMANTIC);
@@ -429,7 +436,7 @@ MF1ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, 
         return MF1_ERR(SEMANTIC);
     }
     uint32_t at_u32 = __builtin_bswap32(*(uint32_t *)at);
-#ifdef EXTRA_DEBUG
+#ifdef MF1_EXTRA_DEBUG
         mf1_printf("at: %08X\r\n", at_u32);
 #endif
     if (at_u32 != at_expected) {

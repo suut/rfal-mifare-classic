@@ -290,7 +290,7 @@ void demoCycle( void )
 
                                 platformLog("SAK = %02X, ATQA = %04X\r\n", sak, atqa);
 
-                                const mf1_model_t *model = identify_mf1_model(sak, atqa);
+                                const mf1_model_t *model = mf1_identify_model(sak, atqa);
 
                                 if (model) {
                                     platformLog("Detected %s with %d bytes UID and %dB capacity\r\n", model->name, model->uid_size, model->capacity);
@@ -307,7 +307,7 @@ void demoCycle( void )
                                     uint32_t start = platformGetSysTick();
 
                                     for (int i = 0; i < 16; i++) {
-                                        ret = authenticate(&cs, authenticated, 4*i, KEY_A, 0xFFFFFFFFFFFFULL, nfcDevice->nfcid, nfcDevice->nfcidLen);
+                                        ret = mf1_authenticate(&cs, authenticated, 4*i, KEY_A, 0xFFFFFFFFFFFFULL, nfcDevice->nfcid, nfcDevice->nfcidLen);
                                         if (ret != RFAL_ERR_NONE) {
                                             platformLog("Cannot authenticate, wrong key?\r\n");
                                             error = true;
@@ -320,7 +320,7 @@ void demoCycle( void )
                                             uint8_t cmd[2] = {0x30, j};
                                             uint8_t resp[18] = {0};
                                             uint16_t resp_size = 0;
-                                            ret = send_receive_encrypted(&cs, cmd, 2, resp, 18, &resp_size);
+                                            ret = mf1_send_receive_encrypted(&cs, cmd, 2, resp, 18, &resp_size);
 
                                             if (ret != RFAL_ERR_NONE) {
                                                 platformLog("Cannot send read block command: %d\r\n", ret);
@@ -340,7 +340,7 @@ void demoCycle( void )
                                     uint8_t rx_buf[4];
                                     uint16_t rx_data_size = 0;
 
-                                    ret = send_receive_encrypted(&cs, hlta_plain, 2, rx_buf, 4, &rx_data_size);
+                                    ret = mf1_send_receive_encrypted(&cs, hlta_plain, 2, rx_buf, 4, &rx_data_size);
 
                                     if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_TIMEOUT) {
                                         platformLog("Error sending HLTA: %d\r\n", ret);
