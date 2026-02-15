@@ -295,120 +295,53 @@ void demoCycle( void )
                                 if (model) {
                                     platformLog("Detected %s with %d bytes UID and %dB capacity\r\n", model->name, model->uid_size, model->capacity);
 
-                                    uint8_t tx_buf[2] = {0x60, 0x00}; // use key A on block 0
-                                    uint8_t rx_buf[4] = {0};
-                                    uint16_t rx_data_size = 0;
-                                    ReturnCode ret = send_receive(tx_buf, 2, rx_buf, 4, &rx_data_size);
+                                    // authenticate to sector 0
+                                    struct Crypto1State cs;
+                                    ReturnCode ret;
 
-                                    if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_CRC) {
-                                        platformLog("Error: %d\r\n", ret);
-                                    } else {
-                                        // compute nr ar
-                                        uint8_t nr_ar[8] = {0};
-                                        uint8_t nr_ar_parity[8] = {0};
+                                    bool authenticated = false;
+                                    bool error = false;
 
-                                        uint32_t nt = __builtin_bswap32(*(uint32_t *)rx_buf);
-#ifdef EXTRA_DEBUG
-                                        platformLog("nt: %08X\r\n", nt);
-#endif
-
-                                        // select a very random number for nr
-                                        uint8_t nr[4] = {0x12, 0x34, 0x56, 0x78};
-
-                                        struct Crypto1State cs;
-                                        crypto1_init(&cs, 0xFFFFFFFFFFFFULL);
-
-                                        // get UID
-                                        uint32_t uid;
-                                        size_t uid_offset = 0;
-                                        switch (nfcDevice->nfcidLen) {
-                                        case 10:
-                                            uid_offset += 3;
-                                        case 7:
-                                            uid_offset += 3;
-                                        case 4:
-                                        default:
-                                            uid = __builtin_bswap32(*(uint32_t *)(nfcDevice->nfcid + uid_offset));
+                                    for (int i = 0; i < 16; i++) {
+                                        ret = authenticate(&cs, authenticated, 4*i, KEY_A, 0xFFFFFFFFFFFFULL, nfcDevice->nfcid, nfcDevice->nfcidLen);
+                                        if (ret != RFAL_ERR_NONE) {
+                                            platformLog("Cannot authenticate, wrong key?\r\n");
+                                            error = true;
+                                            break;
                                         }
+                                        authenticated = true;
 
-                                        crypto1_word(&cs, nt ^ uid, 0);
+                                        for (int j = 4*i; j < 4*i+4; j++) {
+                                            // read block i
+                                            uint8_t cmd[2] = {0x30, j};
+                                            uint8_t resp[18] = {0};
+                                            uint16_t resp_size = 0;
+                                            ret = send_receive_encrypted(&cs, cmd, 2, resp, 18, &resp_size);
 
-                                        // encrypt nr
-                                        for (uint16_t i = 0; i < 4; i++) {
-                                            nr_ar[i] = crypto1_byte(&cs, nr[i], 0) ^ nr[i];
-                                            nr_ar_parity[i] = filter(cs.odd) ^ oddparity8(nr[i]);
-                                        }
-
-                                        // skip 32 bits in the PRNG
-                                        nt = prng_successor(nt, 32);
-
-                                        // ar
-                                        for (uint16_t i = 4; i < 8; i++) {
-                                            nt = prng_successor(nt, 8);
-                                            nr_ar[i] = crypto1_byte(&cs, 0, 0) ^ (nt & 0xFF);
-                                            nr_ar_parity[i] = filter(cs.odd) ^ oddparity8(nt);
-                                        }
-
-#ifdef EXTRA_DEBUG
-                                        platformLog("nr: %s\r\n", hex2Str(nr_ar, 4));
-                                        platformLog("ar: %s\r\n", hex2Str(nr_ar + 4, 4));
-#endif
-
-                                        // expected answer
-                                        uint32_t at_expected = prng_successor(nt, 32) ^ crypto1_word(&cs, 0, 0);
-
-                                        uint8_t at[4] = {0};
-                                        uint8_t at_parity[4] = {0};
-                                        uint16_t at_size = 0;
-
-                                        ret = send_receive_raw(nr_ar, nr_ar_parity, 8, at, at_parity, 4, &at_size);
-                                        if (ret == RFAL_ERR_TIMEOUT) {
-                                            platformLog("Invalid key A for sector 0\r\n");
-                                        } else if (ret != RFAL_ERR_NONE) {
-                                            platformLog("Error when sending nr ar: %d\r\n", ret);
-                                        } else if (at_size != 4) {
-                                            platformLog("Bad at size\r\n");
-                                        } else {
-                                            uint32_t at_u32 = __builtin_bswap32(*(uint32_t *)at);
-#ifdef EXTRA_DEBUG
-                                            platformLog("at: %08X\r\n", at_u32);
-#endif
-                                            if (at_u32 != at_expected) {
-                                                platformLog("Wrong answer tag\r\n");
+                                            if (ret != RFAL_ERR_NONE) {
+                                                platformLog("Cannot send read block command: %d\r\n", ret);
+                                                error = true;
                                             } else {
-                                                // we are authenticated
-                                                platformLog("Reading sector 0\r\n");
-
-                                                for (int i = 0; i < 4; i++) {
-                                                    // read block i
-                                                    uint8_t cmd[4] = {0x30, i, 0x00, 0x00};
-                                                    uint8_t resp[18] = {0};
-                                                    uint16_t resp_size = 0;
-                                                    ret = send_receive_encrypted(&cs, cmd, 2, resp, 18, &resp_size);
-
-                                                    if (ret != RFAL_ERR_NONE) {
-                                                        platformLog("Cannot send read block command: %d\r\n", ret);
-                                                    } else {
-                                                        platformLog("%03d: %s\r\n", i, hex2Str(resp, 16));
-                                                    }
-
-                                                }
-                                                // Make tag go to sleep
-                                                uint8_t hlta_plain[2] = {0x50, 0x00};
-                                                uint8_t rx_buf[4];
-                                                uint16_t rx_data_size = 0;
-
-                                                ret = send_receive_encrypted(&cs, hlta_plain, 2, rx_buf, 4, &rx_data_size);
-
-                                                if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_TIMEOUT) {
-                                                    platformLog("Error sending HLTA: %d\r\n", ret);
-                                                } else if (ret != RFAL_ERR_TIMEOUT) {
-                                                    platformLog("Card responded to HLTA: %s(%d)", hex2Str(rx_buf, (rx_data_size+7)/8), rx_data_size % 8);
-                                                }
+                                                platformLog("%02X: %s\r\n", j, hex2Str(resp, 16));
                                             }
+
                                         }
                                     }
 
+                                    if (!error) {
+                                        // Make tag go to sleep
+                                        uint8_t hlta_plain[2] = {0x50, 0x00};
+                                        uint8_t rx_buf[4];
+                                        uint16_t rx_data_size = 0;
+
+                                        ret = send_receive_encrypted(&cs, hlta_plain, 2, rx_buf, 4, &rx_data_size);
+
+                                        if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_TIMEOUT) {
+                                            platformLog("Error sending HLTA: %d\r\n", ret);
+                                        } else if (ret != RFAL_ERR_TIMEOUT) {
+                                            platformLog("Card responded to HLTA: %s(%d)", hex2Str(rx_buf, (rx_data_size+7)/8), rx_data_size % 8);
+                                        }
+                                    }
                                 } else if (sak & 0x40) {
                                     /* PICC compliant with ISO/IEC 14443-4 */
                                     demoT2t(); // read from NTAG21x or Mifare Ultralight etc

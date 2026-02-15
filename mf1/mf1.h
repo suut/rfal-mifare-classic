@@ -52,6 +52,11 @@ typedef struct {
     uint16_t capacity;
 } mf1_model_t;
 
+typedef enum {
+    KEY_A = 0,
+    KEY_B = 1
+} key_type_t;
+
 extern mf1_model_t mifare_models[MF1_NUM_MODELS];
 
 const mf1_model_t *identify_mf1_model(uint8_t sak, uint16_t atqa);
@@ -64,6 +69,9 @@ void encode_parity_st25r3916(const uint8_t *buf_in, const uint8_t *parity_in, ui
 ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, uint16_t tx_data_size, uint8_t *rx_buf, uint8_t *rx_parity, uint16_t rx_buf_max_len, uint16_t *rx_data_size);
 ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size);
 ReturnCode send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size);
+ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size, bool decrypt);
+
+ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key_type_t key_type, uint64_t key, const uint8_t *uid, uint8_t uid_len);
 
 static inline uint16_t crc_a(const uint8_t *data, size_t data_len) {
     uint16_t crc = 0x6363;

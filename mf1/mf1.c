@@ -268,6 +268,13 @@ ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *r
  * send or receive encrypted message with automatic parity and CRC
  */
 ReturnCode send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
+    return send_receive_encrypted_ex(cs, tx_buf, tx_data_size, rx_buf, rx_buf_max_len, rx_data_size, true);
+}
+
+/**
+ * send or receive encrypted message with automatic parity and CRC, do not decrypt the message or check parity or CRC
+ */
+ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size, bool decrypt) {
     uint8_t tx_buf_crc[tx_data_size + 2];
     uint8_t tx_enc[tx_data_size + 2];
     uint8_t tx_enc_parity[tx_data_size + 2];
@@ -300,22 +307,140 @@ ReturnCode send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf
         return ret;
     }
 
-    // Decrypt
-    for (uint16_t i = 0; i < *rx_data_size; i++) {
-        rx_buf[i] = crypto1_byte(cs, 0, 0) ^ rx_enc[i];
-        rx_parity[i] = filter(cs->odd) ^ rx_enc_parity[i];
-    }
-
-    // check CRC and parity
-    for (uint16_t i = 0; i < *rx_data_size; i++) {
-        if (oddparity8(rx_buf[i]) != rx_parity[i]) {
-            return RFAL_ERR_PAR;
+    if (decrypt) {
+        // Decrypt
+        for (uint16_t i = 0; i < *rx_data_size; i++) {
+            rx_buf[i] = crypto1_byte(cs, 0, 0) ^ rx_enc[i];
+            rx_parity[i] = filter(cs->odd) ^ rx_enc_parity[i];
         }
+
+        // check CRC and parity
+        for (uint16_t i = 0; i < *rx_data_size; i++) {
+            if (oddparity8(rx_buf[i]) != rx_parity[i]) {
+                return RFAL_ERR_PAR;
+            }
+        }
+
+        if (crc_a(rx_buf, *rx_data_size) != 0x0000) {
+            return RFAL_ERR_CRC;
+        }
+    } else {
+        memcpy(rx_buf, rx_enc, *rx_data_size);
+        // FIXME: check parity when loading the new key in the key stream?
     }
 
-    if (crc_a(rx_buf, *rx_data_size) != 0x0000) {
-        return RFAL_ERR_CRC;
+    return RFAL_ERR_NONE;
+}
+
+ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key_type_t key_type, uint64_t key, const uint8_t *uid, uint8_t uid_len) {
+    uint8_t tx_buf[2] = {0x60 | key_type, block};
+    uint8_t rx_buf[4] = {0};
+    uint16_t rx_data_size = 0;
+
+    ReturnCode ret;
+
+    if (nested) {
+        // send command encrypted
+        ret = send_receive_encrypted_ex(cs, tx_buf, 2, rx_buf, 4, &rx_data_size, false);
+    } else {
+        // send command in plain text
+        ret = send_receive(tx_buf, 2, rx_buf, 4, &rx_data_size);
     }
 
+    if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_CRC) {
+        platformLog("Error: %d\r\n", ret);
+        return ret;
+    } else if (rx_data_size != 4) {
+        platformLog("Error: invalid nonce size (%d)\r\n", rx_data_size);
+        return RFAL_ERR_SEMANTIC;
+    }
+
+    // compute nr ar
+    uint8_t nr_ar[8] = {0};
+    uint8_t nr_ar_parity[8] = {0};
+
+    uint32_t nt = __builtin_bswap32(*(uint32_t *)rx_buf);
+#ifdef EXTRA_DEBUG
+    platformLog("nt: %08X\r\n", nt);
+#endif
+
+    // select a very random number for nr
+    uint8_t nr[4] = {0x12, 0x34, 0x56, 0x78};
+
+    // get UID
+    uint32_t uid_u32;
+    size_t uid_offset = 0;
+    switch (uid_len) {
+    case 10:
+        uid_offset += 3;
+    case 7:
+        uid_offset += 3;
+    case 4:
+    default:
+        uid_u32 = __builtin_bswap32(*(uint32_t *)(uid + uid_offset));
+    }
+
+    if (nested) {
+        crypto1_deinit(cs);
+    }
+
+    crypto1_init(cs, key);
+
+    if (nested) {
+        // we need to decrypt the nonce with the new key
+        nt = crypto1_word(cs, nt ^ uid_u32, 1) ^ nt;
+    } else {
+        // initialize keystream with plain text nonce
+        crypto1_word(cs, nt ^ uid_u32, 0);
+    }
+
+    // encrypt nr
+    for (uint16_t i = 0; i < 4; i++) {
+        nr_ar[i] = crypto1_byte(cs, nr[i], 0) ^ nr[i];
+        nr_ar_parity[i] = filter(cs->odd) ^ oddparity8(nr[i]);
+    }
+
+    // skip 32 bits in the PRNG
+    nt = prng_successor(nt, 32);
+
+    // ar
+    for (uint16_t i = 4; i < 8; i++) {
+        nt = prng_successor(nt, 8);
+        nr_ar[i] = crypto1_byte(cs, 0, 0) ^ (nt & 0xFF);
+        nr_ar_parity[i] = filter(cs->odd) ^ oddparity8(nt);
+    }
+
+#ifdef EXTRA_DEBUG
+    platformLog("nr: %s\r\n", hex2Str(nr_ar, 4));
+    platformLog("ar: %s\r\n", hex2Str(nr_ar + 4, 4));
+#endif
+
+    // expected answer
+    uint32_t at_expected = prng_successor(nt, 32) ^ crypto1_word(cs, 0, 0);
+
+    uint8_t at[4] = {0};
+    uint8_t at_parity[4] = {0};
+    uint16_t at_size = 0;
+
+    ret = send_receive_raw(nr_ar, nr_ar_parity, 8, at, at_parity, 4, &at_size);
+    if (ret == RFAL_ERR_TIMEOUT) {
+        platformLog("Invalid key A for sector 0\r\n");
+        return RFAL_ERR_SEMANTIC;
+    } else if (ret != RFAL_ERR_NONE) {
+        platformLog("Error when sending nr ar: %d\r\n", ret);
+        return ret;
+    } else if (at_size != 4) {
+        platformLog("Bad at size\r\n");
+        return RFAL_ERR_SEMANTIC;
+    }
+    uint32_t at_u32 = __builtin_bswap32(*(uint32_t *)at);
+#ifdef EXTRA_DEBUG
+        platformLog("at: %08X\r\n", at_u32);
+#endif
+    if (at_u32 != at_expected) {
+        platformLog("Wrong answer tag\r\n");
+        return RFAL_ERR_SEMANTIC;
+    }
+    // we are authenticated
     return RFAL_ERR_NONE;
 }
