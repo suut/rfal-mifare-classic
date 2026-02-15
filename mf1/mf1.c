@@ -19,7 +19,6 @@
 #include <stdint.h>
 #include <string.h>
 #include "rfal_nfc.h"
-#include "rfal_platform.h"
 #include "crapto1.h"
 #include "parity.h"
 #include "mf1.h"
@@ -33,7 +32,7 @@
 static MF1ReturnCode transceive_run_blocking_tx(void);
 static MF1ReturnCode transceive(const rfalTransceiveContext *ctx);
 
-// TODO: Add Mifare Plus 2K SL1 (need to read ATS)
+// TODO: Add Mifare Plus 2K SL1 / SmartMX MFC 2K emulation (need to read ATS)
 mf1_model_t mifare_models[MF1_NUM_MODELS] = {
         {.name = "Mifare Mini", .short_name = "MF1S200", .sak = 0x09, .atqa = 0x0004, .uid_size = 4, .capacity = 320},
         {.name = "Mifare Mini", .short_name = "MF1S203", .sak = 0x09, .atqa = 0x0044, .uid_size = 7, .capacity = 320},
@@ -55,7 +54,7 @@ const mf1_model_t *mf1_identify_model(uint8_t sak, uint16_t atqa) {
 #if defined(MF1_READER_TYPE_ST25R95)
 
 void mf1_decode_parity_st25r95(const uint8_t *buf_in, uint8_t *buf_out, uint8_t *parity_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
-    const size_t num_valid_bytes = buf_in_len / 2;
+    const size_t num_valid_bytes = buf_in_len / 16;
 
     for (uint32_t i = 0; i < num_valid_bytes; i++) {
         buf_out[i] = buf_in[2*i];
@@ -65,13 +64,13 @@ void mf1_decode_parity_st25r95(const uint8_t *buf_in, uint8_t *buf_out, uint8_t 
     *buf_out_len = num_valid_bytes;
 }
 
-void mf1_encode_parity_st25r95(const uint8_t *buf_in, const uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len) {
+void mf1_encode_parity_st25r95(const uint8_t *buf_in, const uint8_t *parity_in, uint8_t *buf_out, uint16_t buf_in_len, uint16_t *buf_out_len_bits) {
     for (uint32_t i = 0; i < buf_in_len; i++) {
         buf_out[2*i] = buf_in[i];
         buf_out[2*i+1] = (parity_in[i] << 7);
     }
 
-    *buf_out_len = 2 * buf_in_len;
+    *buf_out_len_bits = 8 * 2 * buf_in_len;
 }
 
 #elif defined(MF1_READER_TYPE_ST25R3916)
@@ -209,7 +208,7 @@ MF1ReturnCode mf1_send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_pari
 
     if (ret != MF1_ERR(NONE)) {
 #ifdef MF1_EXTRA_DEBUG
-        mf1_printf("Error: %d\r\n", ret);
+        mf1_printf("Error during transceive: %d\r\n", ret);
 #endif
         return ret;
     }
@@ -350,7 +349,7 @@ MF1ReturnCode mf1_authenticate(struct Crypto1State *cs, bool nested, uint8_t blo
     }
 
     if (ret != MF1_ERR(NONE) && ret != MF1_ERR(CRC)) {
-        mf1_printf("Error: %d\r\n", ret);
+        mf1_printf("Error during authentication: %d\r\n", ret);
         return ret;
     } else if (rx_data_size != 4) {
         mf1_printf("Error: invalid nonce size (%d)\r\n", rx_data_size);
@@ -363,7 +362,7 @@ MF1ReturnCode mf1_authenticate(struct Crypto1State *cs, bool nested, uint8_t blo
 
     uint32_t nt = __builtin_bswap32(*(uint32_t *)rx_buf);
 #ifdef MF1_EXTRA_DEBUG
-    mf1_printf("nt: %08X\r\n", nt);
+    mf1_printf("nt: %08lX\r\n", nt);
 #endif
 
     // select a very random number for nr
@@ -437,7 +436,7 @@ MF1ReturnCode mf1_authenticate(struct Crypto1State *cs, bool nested, uint8_t blo
     }
     uint32_t at_u32 = __builtin_bswap32(*(uint32_t *)at);
 #ifdef MF1_EXTRA_DEBUG
-        mf1_printf("at: %08X\r\n", at_u32);
+        mf1_printf("at: %08lX\r\n", at_u32);
 #endif
     if (at_u32 != at_expected) {
         mf1_printf("Wrong answer tag\r\n");

@@ -19,8 +19,9 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdio.h>
 #include "crapto1.h"
-#include "rfal_utils.h"
+#include "rfal_nfc.h"
 
 // Platform configuration for easy porting
 
