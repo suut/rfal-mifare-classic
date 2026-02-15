@@ -30,9 +30,10 @@
         pos_bit = idx % 8; \
     })
 
-static ReturnCode transceive_run_blocking_tx(void);
-static ReturnCode transceive(const rfalTransceiveContext *ctx);
+static MF1ReturnCode transceive_run_blocking_tx(void);
+static MF1ReturnCode transceive(const rfalTransceiveContext *ctx);
 
+// TODO: Add Mifare Plus 2K SL1 (need to read ATS)
 mf1_model_t mifare_models[MF1_NUM_MODELS] = {
         {.name = "Mifare Mini", .short_name = "MF1S200", .sak = 0x09, .atqa = 0x0004, .uid_size = 4, .capacity = 320},
         {.name = "Mifare Mini", .short_name = "MF1S203", .sak = 0x09, .atqa = 0x0044, .uid_size = 7, .capacity = 320},
@@ -123,36 +124,36 @@ void encode_parity_st25r3916(const uint8_t *buf_in, const uint8_t *parity_in, ui
 
 #pragma GCC diagnostic pop
 
-static ReturnCode transceive_run_blocking_tx(void)
+static MF1ReturnCode transceive_run_blocking_tx(void)
 {
-    ReturnCode ret;
+    MF1ReturnCode ret;
 
     do{
         rfalWorker();
         ret = rfalGetTransceiveStatus();
     }
-    while( (rfalIsTransceiveInTx()) && (ret == RFAL_ERR_BUSY) );
+    while( (rfalIsTransceiveInTx()) && (ret == MF1_ERR(BUSY)) );
 
     if( rfalIsTransceiveInRx() )
     {
-        return RFAL_ERR_NONE;
+        return MF1_ERR(NONE);
     }
 
     return ret;
 }
 
-static ReturnCode transceive(const rfalTransceiveContext *ctx) {
-    ReturnCode ret = rfalStartTransceive(ctx);
+static MF1ReturnCode transceive(const rfalTransceiveContext *ctx) {
+    MF1ReturnCode ret = rfalStartTransceive(ctx);
 #ifdef EXTRA_DEBUG
-    if (ret != RFAL_ERR_NONE) platformLog("rfalStartTransceive() -> %d\r\n", ret);
+    if (ret != MF1_ERR(NONE)) mf1_printf("rfalStartTransceive() -> %d\r\n", ret);
 #endif
     ret = transceive_run_blocking_tx();
 #ifdef EXTRA_DEBUG
-    if (ret != RFAL_ERR_NONE) platformLog("rfalTransceiveRunBlockingTx() -> %d\r\n", ret);
+    if (ret != MF1_ERR(NONE)) mf1_printf("rfalTransceiveRunBlockingTx() -> %d\r\n", ret);
 #endif
     ret = rfalTransceiveBlockingRx();
 #ifdef EXTRA_DEBUG
-    if (ret != RFAL_ERR_NONE) platformLog("rfalTransceiveBlockingRx() -> %d\r\n", ret);
+    if (ret != MF1_ERR(NONE)) mf1_printf("rfalTransceiveBlockingRx() -> %d\r\n", ret);
 #endif
     return ret;
 }
@@ -163,7 +164,7 @@ static ReturnCode transceive(const rfalTransceiveContext *ctx) {
  * rx_buf: data to be received
  * rx_data_size: size of the received data, in bytes
  */
-ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, uint16_t tx_data_size, uint8_t *rx_buf, uint8_t *rx_parity, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
+MF1ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, uint16_t tx_data_size, uint8_t *rx_buf, uint8_t *rx_parity, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
     *rx_data_size = 0;
 
     uint32_t flags =
@@ -198,19 +199,19 @@ ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, uin
             .txBufLen = tx_buf_encoded_size_bits
     };
 
-    ReturnCode ret = transceive(&ctx);
+    MF1ReturnCode ret = transceive(&ctx);
 
 #ifdef EXTRA_DEBUG
-    platformLog("Received data: (%db) ", rx_buf_rcvd_len_bits);
+    mf1_printf("Received data: (%db) ", rx_buf_rcvd_len_bits);
     for (int i = 0; i < (rx_buf_rcvd_len_bits + 7)/8; i++) {
-        platformLog("%02X ", rx_buf_encoded[i]);
+        mf1_printf("%02X ", rx_buf_encoded[i]);
     }
-    platformLog("\r\n");
+    mf1_printf("\r\n");
 #endif
 
-    if (ret != RFAL_ERR_NONE) {
+    if (ret != MF1_ERR(NONE)) {
 #ifdef EXTRA_DEBUG
-        platformLog("Error: %d\r\n", ret);
+        mf1_printf("Error: %d\r\n", ret);
 #endif
         return ret;
     }
@@ -218,13 +219,13 @@ ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, uin
     // decoding parity
     decode_parity(rx_buf_encoded, rx_buf, rx_parity, rx_buf_rcvd_len_bits, rx_data_size);
 
-    return RFAL_ERR_NONE;
+    return MF1_ERR(NONE);
 }
 
 /**
  * send or receive with automatic parity and CRC
  */
-ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
+MF1ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
     uint8_t tx_buf_crc[tx_data_size + 2];
     uint8_t tx_parity[tx_data_size + 2];
     uint8_t rx_parity[rx_buf_max_len];
@@ -245,29 +246,29 @@ ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *r
     }
 
     *rx_data_size = 0;
-    ReturnCode ret = send_receive_raw(tx_buf_crc, tx_parity, tx_data_size + 2, rx_buf, rx_parity, rx_buf_max_len, rx_data_size);
-    if (ret != RFAL_ERR_NONE) {
+    MF1ReturnCode ret = send_receive_raw(tx_buf_crc, tx_parity, tx_data_size + 2, rx_buf, rx_parity, rx_buf_max_len, rx_data_size);
+    if (ret != MF1_ERR(NONE)) {
         return ret;
     }
 
     // check CRC and parity
     for (uint16_t i = 0; i < *rx_data_size; i++) {
         if (oddparity8(rx_buf[i]) != rx_parity[i]) {
-            return RFAL_ERR_PAR;
+            return MF1_ERR(PAR);
         }
     }
 
     if (crc_a(rx_buf, *rx_data_size) != 0x0000) {
-        return RFAL_ERR_CRC;
+        return MF1_ERR(CRC);
     }
 
-    return RFAL_ERR_NONE;
+    return MF1_ERR(NONE);
 }
 
 /**
  * send or receive encrypted message with automatic parity and CRC
  */
-ReturnCode send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
+MF1ReturnCode send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
         uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
     return send_receive_encrypted_ex(cs, tx_buf, tx_data_size, rx_buf, rx_buf_max_len, rx_data_size, true);
 }
@@ -276,7 +277,7 @@ ReturnCode send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf
  * send or receive encrypted message with automatic parity and CRC,
  * optionally do not decrypt the message or check parity or CRC
  */
-ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
+MF1ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
         uint16_t rx_buf_max_len, uint16_t *rx_data_size, bool decrypt) {
     uint8_t tx_buf_crc[tx_data_size + 2];
     uint8_t tx_enc[tx_data_size + 2];
@@ -305,8 +306,8 @@ ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_
     }
 
     *rx_data_size = 0;
-    ReturnCode ret = send_receive_raw(tx_enc, tx_enc_parity, tx_data_size + 2, rx_enc, rx_enc_parity, rx_buf_max_len, rx_data_size);
-    if (ret != RFAL_ERR_NONE) {
+    MF1ReturnCode ret = send_receive_raw(tx_enc, tx_enc_parity, tx_data_size + 2, rx_enc, rx_enc_parity, rx_buf_max_len, rx_data_size);
+    if (ret != MF1_ERR(NONE)) {
         return ret;
     }
 
@@ -320,27 +321,27 @@ ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_
         // check CRC and parity
         for (uint16_t i = 0; i < *rx_data_size; i++) {
             if (oddparity8(rx_buf[i]) != rx_parity[i]) {
-                return RFAL_ERR_PAR;
+                return MF1_ERR(PAR);
             }
         }
 
         if (crc_a(rx_buf, *rx_data_size) != 0x0000) {
-            return RFAL_ERR_CRC;
+            return MF1_ERR(CRC);
         }
     } else {
         memcpy(rx_buf, rx_enc, *rx_data_size);
         // FIXME: check parity when loading the new key in the key stream?
     }
 
-    return RFAL_ERR_NONE;
+    return MF1_ERR(NONE);
 }
 
-ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key_type_t key_type, uint64_t key, const uint8_t *uid, uint8_t uid_len) {
+MF1ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key_type_t key_type, uint64_t key, const uint8_t *uid, uint8_t uid_len) {
     uint8_t tx_buf[2] = {0x60 | key_type, block};
     uint8_t rx_buf[4] = {0};
     uint16_t rx_data_size = 0;
 
-    ReturnCode ret;
+    MF1ReturnCode ret;
 
     if (nested) {
         // send command encrypted
@@ -350,12 +351,12 @@ ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key
         ret = send_receive(tx_buf, 2, rx_buf, 4, &rx_data_size);
     }
 
-    if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_CRC) {
-        platformLog("Error: %d\r\n", ret);
+    if (ret != MF1_ERR(NONE) && ret != MF1_ERR(CRC)) {
+        mf1_printf("Error: %d\r\n", ret);
         return ret;
     } else if (rx_data_size != 4) {
-        platformLog("Error: invalid nonce size (%d)\r\n", rx_data_size);
-        return RFAL_ERR_SEMANTIC;
+        mf1_printf("Error: invalid nonce size (%d)\r\n", rx_data_size);
+        return MF1_ERR(SEMANTIC);
     }
 
     // compute nr ar
@@ -364,7 +365,7 @@ ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key
 
     uint32_t nt = __builtin_bswap32(*(uint32_t *)rx_buf);
 #ifdef EXTRA_DEBUG
-    platformLog("nt: %08X\r\n", nt);
+    mf1_printf("nt: %08X\r\n", nt);
 #endif
 
     // select a very random number for nr
@@ -414,8 +415,8 @@ ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key
     }
 
 #ifdef EXTRA_DEBUG
-    platformLog("nr: %s\r\n", hex2Str(nr_ar, 4));
-    platformLog("ar: %s\r\n", hex2Str(nr_ar + 4, 4));
+    mf1_printf("nr: %s\r\n", hex2Str(nr_ar, 4));
+    mf1_printf("ar: %s\r\n", hex2Str(nr_ar + 4, 4));
 #endif
 
     // expected answer
@@ -426,24 +427,24 @@ ReturnCode authenticate(struct Crypto1State *cs, bool nested, uint8_t block, key
     uint16_t at_size = 0;
 
     ret = send_receive_raw(nr_ar, nr_ar_parity, 8, at, at_parity, 4, &at_size);
-    if (ret == RFAL_ERR_TIMEOUT) {
-        platformLog("Invalid key A for sector 0\r\n");
-        return RFAL_ERR_SEMANTIC;
-    } else if (ret != RFAL_ERR_NONE) {
-        platformLog("Error when sending nr ar: %d\r\n", ret);
+    if (ret == MF1_ERR(TIMEOUT)) {
+        mf1_printf("Invalid key A for sector 0\r\n");
+        return MF1_ERR(SEMANTIC);
+    } else if (ret != MF1_ERR(NONE)) {
+        mf1_printf("Error when sending nr ar: %d\r\n", ret);
         return ret;
     } else if (at_size != 4) {
-        platformLog("Bad at size\r\n");
-        return RFAL_ERR_SEMANTIC;
+        mf1_printf("Bad at size\r\n");
+        return MF1_ERR(SEMANTIC);
     }
     uint32_t at_u32 = __builtin_bswap32(*(uint32_t *)at);
 #ifdef EXTRA_DEBUG
-        platformLog("at: %08X\r\n", at_u32);
+        mf1_printf("at: %08X\r\n", at_u32);
 #endif
     if (at_u32 != at_expected) {
-        platformLog("Wrong answer tag\r\n");
-        return RFAL_ERR_SEMANTIC;
+        mf1_printf("Wrong answer tag\r\n");
+        return MF1_ERR(SEMANTIC);
     }
     // we are authenticated
-    return RFAL_ERR_NONE;
+    return MF1_ERR(NONE);
 }
