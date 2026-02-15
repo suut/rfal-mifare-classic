@@ -302,6 +302,10 @@ void demoCycle( void )
                                     bool authenticated = false;
                                     bool error = false;
 
+                                    uint8_t blocks[1024];
+
+                                    uint32_t start = platformGetSysTick();
+
                                     for (int i = 0; i < 16; i++) {
                                         ret = authenticate(&cs, authenticated, 4*i, KEY_A, 0xFFFFFFFFFFFFULL, nfcDevice->nfcid, nfcDevice->nfcidLen);
                                         if (ret != RFAL_ERR_NONE) {
@@ -321,26 +325,36 @@ void demoCycle( void )
                                             if (ret != RFAL_ERR_NONE) {
                                                 platformLog("Cannot send read block command: %d\r\n", ret);
                                                 error = true;
+                                                break;
                                             } else {
-                                                platformLog("%02X: %s\r\n", j, hex2Str(resp, 16));
+                                                memcpy(blocks + 16*j, resp, 16);
                                             }
-
                                         }
                                     }
 
-                                    if (!error) {
-                                        // Make tag go to sleep
-                                        uint8_t hlta_plain[2] = {0x50, 0x00};
-                                        uint8_t rx_buf[4];
-                                        uint16_t rx_data_size = 0;
+                                    if (error) {
+                                        break;
+                                    }
+                                    // Make tag go to sleep
+                                    uint8_t hlta_plain[2] = {0x50, 0x00};
+                                    uint8_t rx_buf[4];
+                                    uint16_t rx_data_size = 0;
 
-                                        ret = send_receive_encrypted(&cs, hlta_plain, 2, rx_buf, 4, &rx_data_size);
+                                    ret = send_receive_encrypted(&cs, hlta_plain, 2, rx_buf, 4, &rx_data_size);
 
-                                        if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_TIMEOUT) {
-                                            platformLog("Error sending HLTA: %d\r\n", ret);
-                                        } else if (ret != RFAL_ERR_TIMEOUT) {
-                                            platformLog("Card responded to HLTA: %s(%d)", hex2Str(rx_buf, (rx_data_size+7)/8), rx_data_size % 8);
-                                        }
+                                    if (ret != RFAL_ERR_NONE && ret != RFAL_ERR_TIMEOUT) {
+                                        platformLog("Error sending HLTA: %d\r\n", ret);
+                                    } else if (ret != RFAL_ERR_TIMEOUT) {
+                                        platformLog("Card responded to HLTA: %s(%d)", hex2Str(rx_buf, (rx_data_size+7)/8), rx_data_size % 8);
+                                    }
+
+                                    uint32_t end = platformGetSysTick();
+
+                                    platformLog("Card read in %u ms\r\n", end - start);
+
+                                    // Display blocks
+                                    for (int i = 0; i < 64; i++) {
+                                        platformLog("%02X | %s\r\n", i, hex2Str(blocks + 16*i, 16));
                                     }
                                 } else if (sak & 0x40) {
                                     /* PICC compliant with ISO/IEC 14443-4 */

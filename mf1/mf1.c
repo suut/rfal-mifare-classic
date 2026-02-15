@@ -267,14 +267,17 @@ ReturnCode send_receive(const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *r
 /**
  * send or receive encrypted message with automatic parity and CRC
  */
-ReturnCode send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
+ReturnCode send_receive_encrypted(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
+        uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
     return send_receive_encrypted_ex(cs, tx_buf, tx_data_size, rx_buf, rx_buf_max_len, rx_data_size, true);
 }
 
 /**
- * send or receive encrypted message with automatic parity and CRC, do not decrypt the message or check parity or CRC
+ * send or receive encrypted message with automatic parity and CRC,
+ * optionally do not decrypt the message or check parity or CRC
  */
-ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf, uint16_t rx_buf_max_len, uint16_t *rx_data_size, bool decrypt) {
+ReturnCode send_receive_encrypted_ex(struct Crypto1State *cs, const uint8_t *tx_buf, uint16_t tx_data_size, uint8_t *rx_buf,
+        uint16_t rx_buf_max_len, uint16_t *rx_data_size, bool decrypt) {
     uint8_t tx_buf_crc[tx_data_size + 2];
     uint8_t tx_enc[tx_data_size + 2];
     uint8_t tx_enc_parity[tx_data_size + 2];
