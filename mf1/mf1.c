@@ -167,16 +167,7 @@ static MF1ReturnCode transceive(const rfalTransceiveContext *ctx) {
 MF1ReturnCode send_receive_raw(const uint8_t *tx_buf, const uint8_t *tx_parity, uint16_t tx_data_size, uint8_t *rx_buf, uint8_t *rx_parity, uint16_t rx_buf_max_len, uint16_t *rx_data_size) {
     *rx_data_size = 0;
 
-    uint32_t flags =
-            // CRC stuff
-            RFAL_TXRX_FLAGS_CRC_TX_MANUAL |
-            RFAL_TXRX_FLAGS_CRC_RX_MANUAL |
-            RFAL_TXRX_FLAGS_CRC_RX_KEEP |
-            // parity bits
-            RFAL_TXRX_FLAGS_PAR_RX_KEEP |
-            RFAL_TXRX_FLAGS_PAR_TX_NONE |
-            // analog
-            RFAL_TXRX_FLAGS_AGC_ON;
+    uint32_t flags = MF1_TXRX_FLAGS;
 
     uint8_t tx_buf_encoded[ENCODED_BUF_SIZE(tx_data_size)];
     memset(tx_buf_encoded, 0x00, ENCODED_BUF_SIZE(tx_data_size));

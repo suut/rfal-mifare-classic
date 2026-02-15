@@ -34,11 +34,32 @@ typedef ReturnCode MF1ReturnCode;
 # define decode_parity decode_parity_st25r3916
 # define ENCODED_BUF_SIZE(sz) ((9 * (sz) + 7) / 8)
 # define MF1_ERR(x) RFAL_ERR_ ## x
+# define MF1_TXRX_FLAGS ({ \
+        /* CRC stuff */ \
+        RFAL_TXRX_FLAGS_CRC_TX_MANUAL | \
+        RFAL_TXRX_FLAGS_CRC_RX_MANUAL | \
+        RFAL_TXRX_FLAGS_CRC_RX_KEEP | \
+        /* parity bits */ \
+        RFAL_TXRX_FLAGS_PAR_RX_KEEP | \
+        RFAL_TXRX_FLAGS_PAR_TX_NONE | \
+        /* analog */ \
+        RFAL_TXRX_FLAGS_AGC_ON; \
+    })
 #elif defined(READER_TYPE_ST25R95)
 # define encode_parity encode_parity_st25r95
 # define decode_parity decode_parity_st25r95
 # define ENCODED_BUF_SIZE(sz) (2 * (sz))
-#define MF1_ERR(x) ERR_ ## x
+# define MF1_ERR(x) ERR_ ## x
+# define MF1_TXRX_FLAGS ({ \
+        /* CRC stuff */ \
+        RFAL_TXRX_FLAGS_CRC_TX_MANUAL | \
+        RFAL_TXRX_FLAGS_CRC_RX_KEEP | \
+        /* parity bits */ \
+        RFAL_TXRX_FLAGS_PAR_RX_KEEP | \
+        RFAL_TXRX_FLAGS_PAR_TX_NONE | \
+        /* analog */ \
+        RFAL_TXRX_FLAGS_AGC_ON; \
+    })
 #endif
 
 #define MF1_NUM_MODELS ((size_t)6)
